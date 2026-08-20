@@ -8,7 +8,7 @@ class Saude_MG_Permission_Manager {
 
     public function __construct() {
         $this->plugin_name = 'saude-mg-permission-manager';
-        $this->version = '1.0.0';
+        $this->version = SMPM_VERSION;
 
         $this->load_dependencies();
         $this->define_admin_hooks();
@@ -34,8 +34,7 @@ class Saude_MG_Permission_Manager {
         // Permission control hooks
         $this->loader->add_action( 'admin_init', $plugin_admin, 'smpm_restrict_editor_access' );
         $this->loader->add_filter( 'user_has_cap', $plugin_admin, 'smpm_filter_user_capabilities', 10, 3 );
-        $this->loader->add_action( 'admin_menu', $plugin_admin, 'smpm_remove_admin_menus' );
-        $this->loader->add_filter( 'pre_get_posts', $plugin_admin, 'smpm_filter_posts_query' );
+        $this->loader->add_action( 'admin_menu', $plugin_admin, 'smpm_remove_admin_menus', 9999 );
         $this->loader->add_action( 'load-edit.php', $plugin_admin, 'smpm_restrict_posts_list' );
         $this->loader->add_action( 'load-edit.php', $plugin_admin, 'smpm_restrict_pages_list' );
         
@@ -43,7 +42,6 @@ class Saude_MG_Permission_Manager {
         $this->loader->add_filter( 'get_terms', $plugin_admin, 'smpm_filter_categories_list', 10, 3 );
         
         // Hooks para ocultar elementos da barra superior
-        $this->loader->add_action( 'wp_before_admin_bar_render', $plugin_admin, 'smpm_hide_admin_bar_items' );
         
         // Hooks para limpar o painel
         $this->loader->add_action( 'wp_dashboard_setup', $plugin_admin, 'smpm_remove_dashboard_widgets' );
@@ -58,11 +56,21 @@ class Saude_MG_Permission_Manager {
         $this->loader->add_action( 'admin_menu', $plugin_admin, 'smpm_add_admin_log_page' );
         
         // Hooks para filtrar categorias na criação/edição de posts
-        $this->loader->add_filter( 'get_terms_args', $plugin_admin, 'smpm_filter_post_categories', 10, 2 );
-        $this->loader->add_filter( 'wp_dropdown_cats', $plugin_admin, 'smpm_filter_category_dropdown', 10, 2 );
-        
-        // Hook para corrigir capacidades de criação de posts
+// Hook para corrigir capacidades de criação de posts
         $this->loader->add_filter( 'user_has_cap', $plugin_admin, 'smpm_fix_new_post_capabilities', 10, 3 );
+
+        // Interface restrita e contadores
+        $this->loader->add_action( 'current_screen', $plugin_admin, 'smpm_remove_editor_help', 9999 );
+        $this->loader->add_filter( 'views_edit-post', $plugin_admin, 'smpm_filter_restricted_post_views', 9999, 1 );
+        $this->loader->add_filter( 'views_edit-page', $plugin_admin, 'smpm_filter_restricted_post_views', 9999, 1 );
+
+        $this->loader->add_action( 'admin_footer', $plugin_admin, 'smpm_remove_elementor_ai_from_media', 9999 );
+        $this->loader->add_action( 'wp_before_admin_bar_render', $plugin_admin, 'smpm_hide_admin_bar_items', 9999 );
+        $this->loader->add_filter( 'pre_get_posts', $plugin_admin, 'smpm_filter_posts_query', 9999, 1 );
+        $this->loader->add_filter( 'posts_clauses', $plugin_admin, 'smpm_filter_posts_clauses', 9999, 2 );
+        $this->loader->add_filter( 'get_terms_args', $plugin_admin, 'smpm_filter_post_categories', 9999, 2 );
+
+        $this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'smpm_enqueue_editor_critical_styles', -9999, 1 );
     }
 
     public function run() {
@@ -81,5 +89,4 @@ class Saude_MG_Permission_Manager {
         return $this->version;
     }
 }
-
 
