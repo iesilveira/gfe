@@ -3,7 +3,7 @@ Contributors: manus
 Tags: permissions, users, roles, editor, access-control
 Requires at least: 5.0
 Tested up to: 6.4
-Stable tag: 17.10
+Stable tag: 17.13
 Requires PHP: 7.4
 License: GPL2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -70,6 +70,29 @@ O plugin foi desenvolvido para integrar-se perfeitamente com a lógica nativa de
 3. Modal com controles de páginas, categorias e plugins
 
 == Changelog ==
+
+= 17.13 =
+* Corrigida a identificação de páginas abertas por post.php.
+* Corrigido o acesso de Editores às páginas autorizadas.
+* Corrigida a compatibilidade da validação com o Elementor.
+* Separada corretamente a validação de páginas e posts.
+* Corrigida a normalização dos IDs armazenados nas permissões.
+* Corrigida a liberação das capacidades primitivas exigidas pelo WordPress.
+
+
+= 17.12 =
+* Restaurado o item wp-admin-bar-site-name na barra superior.
+* Restaurado o nome do site com link para a página pública.
+* Mantidos o nome do usuário sem avatar e somente a opção Sair.
+
+
+= 17.11 =
+* Removida a logo personalizada da barra lateral.
+* Removido o preload do favicon usado no menu administrativo.
+* Removidos os ajustes de tamanho e posicionamento da barra lateral.
+* Removidos os estilos e scripts relacionados à identidade visual lateral.
+* Preservadas as restrições funcionais do menu do Editor.
+
 
 = 17.10 =
 * Carregado o CSS crítico junto ao stylesheet nativo wp-admin.

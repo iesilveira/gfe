@@ -70,7 +70,7 @@ class Saude_MG_Permission_Manager {
         $this->loader->add_filter( 'posts_clauses', $plugin_admin, 'smpm_filter_posts_clauses', 9999, 2 );
         $this->loader->add_filter( 'get_terms_args', $plugin_admin, 'smpm_filter_post_categories', 9999, 2 );
 
-        $this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'smpm_enqueue_editor_critical_styles', -9999, 1 );
+        $this->loader->add_action( 'admin_head', $plugin_admin, 'smpm_output_editor_menu_styles', 0 );
     }
 
     public function run() {

@@ -140,86 +140,426 @@ class Saude_MG_Permission_Manager_Admin {
 
     public function smpm_restrict_editor_access() {
         $current_user = wp_get_current_user();
-        if ( ! in_array( 'editor', (array) $current_user->roles ) ) {
+
+        if (
+            ! in_array(
+                'editor',
+                (array) $current_user->roles,
+                true
+            )
+        ) {
             return;
         }
 
         global $pagenow;
-        if ( $pagenow == 'post.php' || $pagenow == 'edit.php' ) {
-            $post_type = isset( $_GET['post_type'] ) ? $_GET['post_type'] : 'post';
-            if ( $post_type == 'page' ) {
-                $this->smpm_restrict_page_access( $current_user->ID );
-            } elseif ( $post_type == 'post' ) {
-                $this->smpm_restrict_post_access( $current_user->ID );
-            }
-        }
-    }
 
-    private function smpm_restrict_page_access( $user_id ) {
-        $allowed_pages = get_user_meta( $user_id, 'smpm_allowed_pages', true );
-        if ( ! is_array( $allowed_pages ) ) $allowed_pages = array();
+        if (
+            ! in_array(
+                $pagenow,
+                array(
+                    'post.php',
+                    'edit.php',
+                ),
+                true
+            )
+        ) {
+            return;
+        }
+
+        $post_id = 0;
 
         if ( isset( $_GET['post'] ) ) {
-            $post_id = absint( $_GET['post'] );
-            $post = get_post( $post_id );
-            if ( $post && $post->post_type == 'page' && ! in_array( $post_id, $allowed_pages ) ) {
-                wp_die( __( 'Você não tem permissão para acessar esta página.', 'saude-mg-permission-manager' ) );
-            }
+            $post_id = absint(
+                wp_unslash( $_GET['post'] )
+            );
+        } elseif ( isset( $_POST['post_ID'] ) ) {
+            $post_id = absint(
+                wp_unslash( $_POST['post_ID'] )
+            );
+        } elseif ( isset( $_POST['post_id'] ) ) {
+            $post_id = absint(
+                wp_unslash( $_POST['post_id'] )
+            );
+        }
+
+        /*
+         * Em post.php, o parâmetro post_type normalmente não
+         * existe. O tipo correto precisa ser obtido pelo ID.
+         * Isso também atende a edição pelo Elementor.
+         */
+        if ( $post_id > 0 ) {
+            $post_type = get_post_type( $post_id );
+        } else {
+            $post_type = isset( $_REQUEST['post_type'] )
+                ? sanitize_key(
+                    wp_unslash(
+                        $_REQUEST['post_type']
+                    )
+                )
+                : 'post';
+        }
+
+        if ( 'page' === $post_type ) {
+            $this->smpm_restrict_page_access(
+                $current_user->ID,
+                $post_id
+            );
+
+            return;
+        }
+
+        if ( 'post' === $post_type ) {
+            $this->smpm_restrict_post_access(
+                $current_user->ID,
+                $post_id
+            );
         }
     }
 
-    private function smpm_restrict_post_access( $user_id ) {
-        $allowed_categories = get_user_meta( $user_id, 'smpm_allowed_categories', true );
-        if ( ! is_array( $allowed_categories ) ) $allowed_categories = array();
+    private function smpm_restrict_page_access(
+        $user_id,
+        $post_id = 0
+    ) {
+        $post_id = absint( $post_id );
 
-        if ( isset( $_GET['post'] ) ) {
-            $post_id = absint( $_GET['post'] );
-            $post_categories = wp_get_post_categories( $post_id );
-            $has_allowed_category = false;
-            foreach ( $post_categories as $cat_id ) {
-                if ( in_array( $cat_id, $allowed_categories ) ) {
-                    $has_allowed_category = true;
-                    break;
-                }
-            }
-            if ( ! $has_allowed_category && ! empty( $allowed_categories ) ) {
-                wp_die( __( 'Você não tem permissão para acessar este post.', 'saude-mg-permission-manager' ) );
-            }
+        if (
+            $post_id <= 0
+            && isset( $_REQUEST['post'] )
+        ) {
+            $post_id = absint(
+                wp_unslash( $_REQUEST['post'] )
+            );
+        }
+
+        /*
+         * Na listagem de páginas não existe um conteúdo
+         * individual a ser validado.
+         */
+        if ( $post_id <= 0 ) {
+            return;
+        }
+
+        $post = get_post( $post_id );
+
+        if (
+            ! $post
+            || 'page' !== $post->post_type
+        ) {
+            return;
+        }
+
+        $allowed_pages = get_user_meta(
+            $user_id,
+            'smpm_allowed_pages',
+            true
+        );
+
+        $allowed_pages = is_array( $allowed_pages )
+            ? array_values(
+                array_unique(
+                    array_filter(
+                        array_map(
+                            'absint',
+                            $allowed_pages
+                        )
+                    )
+                )
+            )
+            : array();
+
+        if (
+            ! in_array(
+                $post_id,
+                $allowed_pages,
+                true
+            )
+        ) {
+            wp_die(
+                esc_html__(
+                    'Você não tem permissão para acessar esta página.',
+                    'saude-mg-permission-manager'
+                ),
+                esc_html__(
+                    'Acesso negado',
+                    'saude-mg-permission-manager'
+                ),
+                array(
+                    'response'  => 403,
+                    'back_link' => true,
+                )
+            );
         }
     }
 
-    public function smpm_filter_user_capabilities( $allcaps, $caps, $args ) {
+    private function smpm_restrict_post_access(
+        $user_id,
+        $post_id = 0
+    ) {
+        $post_id = absint( $post_id );
+
+        if (
+            $post_id <= 0
+            && isset( $_REQUEST['post'] )
+        ) {
+            $post_id = absint(
+                wp_unslash( $_REQUEST['post'] )
+            );
+        }
+
+        /*
+         * Na listagem de posts não existe um conteúdo
+         * individual a ser validado.
+         */
+        if ( $post_id <= 0 ) {
+            return;
+        }
+
+        $post = get_post( $post_id );
+
+        /*
+         * Uma página nunca deve passar pela validação
+         * de categorias de posts.
+         */
+        if (
+            ! $post
+            || 'post' !== $post->post_type
+        ) {
+            return;
+        }
+
+        $allowed_categories = get_user_meta(
+            $user_id,
+            'smpm_allowed_categories',
+            true
+        );
+
+        $allowed_categories = is_array(
+            $allowed_categories
+        )
+            ? array_values(
+                array_unique(
+                    array_filter(
+                        array_map(
+                            'absint',
+                            $allowed_categories
+                        )
+                    )
+                )
+            )
+            : array();
+
+        $post_categories = array_values(
+            array_unique(
+                array_filter(
+                    array_map(
+                        'absint',
+                        wp_get_post_categories(
+                            $post_id
+                        )
+                    )
+                )
+            )
+        );
+
+        $permitted_categories = array_intersect(
+            $post_categories,
+            $allowed_categories
+        );
+
+        if ( empty( $permitted_categories ) ) {
+            wp_die(
+                esc_html__(
+                    'Você não tem permissão para acessar este post.',
+                    'saude-mg-permission-manager'
+                ),
+                esc_html__(
+                    'Acesso negado',
+                    'saude-mg-permission-manager'
+                ),
+                array(
+                    'response'  => 403,
+                    'back_link' => true,
+                )
+            );
+        }
+    }
+
+    public function smpm_filter_user_capabilities(
+        $allcaps,
+        $caps,
+        $args
+    ) {
         $current_user = wp_get_current_user();
-        if ( ! in_array( 'editor', (array) $current_user->roles ) ) {
+
+        if (
+            ! in_array(
+                'editor',
+                (array) $current_user->roles,
+                true
+            )
+        ) {
             return $allcaps;
         }
 
-        if ( isset( $args[0] ) && ( $args[0] == 'edit_page' || $args[0] == 'delete_page' ) && isset( $args[2] ) ) {
-            $post_id = $args[2];
-            $allowed_pages = get_user_meta( $current_user->ID, 'smpm_allowed_pages', true );
-            if ( ! is_array( $allowed_pages ) || ! in_array( $post_id, $allowed_pages ) ) {
-                $allcaps['edit_page'] = false;
-                $allcaps['delete_page'] = false;
+        if (
+            ! isset( $args[0], $args[2] )
+            || ! is_array( $allcaps )
+        ) {
+            return $allcaps;
+        }
+
+        $requested_capability = (
+            (string) $args[0]
+        );
+
+        $post_id = absint( $args[2] );
+
+        if ( $post_id <= 0 ) {
+            return $allcaps;
+        }
+
+        $post = get_post( $post_id );
+
+        if ( ! $post ) {
+            return $allcaps;
+        }
+
+        $is_edit_request = in_array(
+            $requested_capability,
+            array(
+                'edit_post',
+                'edit_page',
+            ),
+            true
+        );
+
+        $is_delete_request = in_array(
+            $requested_capability,
+            array(
+                'delete_post',
+                'delete_page',
+            ),
+            true
+        );
+
+        $is_read_request = in_array(
+            $requested_capability,
+            array(
+                'read_post',
+                'read_page',
+            ),
+            true
+        );
+
+        if (
+            ! $is_edit_request
+            && ! $is_delete_request
+            && ! $is_read_request
+        ) {
+            return $allcaps;
+        }
+
+        $has_permission = false;
+
+        if ( 'page' === $post->post_type ) {
+            $allowed_pages = get_user_meta(
+                $current_user->ID,
+                'smpm_allowed_pages',
+                true
+            );
+
+            $allowed_pages = is_array( $allowed_pages )
+                ? array_values(
+                    array_unique(
+                        array_filter(
+                            array_map(
+                                'absint',
+                                $allowed_pages
+                            )
+                        )
+                    )
+                )
+                : array();
+
+            $has_permission = in_array(
+                $post_id,
+                $allowed_pages,
+                true
+            );
+        } elseif ( 'post' === $post->post_type ) {
+            $allowed_categories = get_user_meta(
+                $current_user->ID,
+                'smpm_allowed_categories',
+                true
+            );
+
+            $allowed_categories = is_array(
+                $allowed_categories
+            )
+                ? array_values(
+                    array_unique(
+                        array_filter(
+                            array_map(
+                                'absint',
+                                $allowed_categories
+                            )
+                        )
+                    )
+                )
+                : array();
+
+            $post_categories = array_values(
+                array_unique(
+                    array_filter(
+                        array_map(
+                            'absint',
+                            wp_get_post_categories(
+                                $post_id
+                            )
+                        )
+                    )
+                )
+            );
+
+            $has_permission = ! empty(
+                array_intersect(
+                    $post_categories,
+                    $allowed_categories
+                )
+            );
+        } else {
+            return $allcaps;
+        }
+
+        /*
+         * map_meta_cap entrega em $caps as capacidades
+         * primitivas que precisam ser liberadas ou negadas.
+         */
+        foreach ( (array) $caps as $primitive_cap ) {
+            if ( $has_permission ) {
+                $allcaps[ $primitive_cap ] = true;
+            } else {
+                $allcaps[ $primitive_cap ] = false;
             }
         }
 
-        if ( isset( $args[0] ) && ( $args[0] == 'edit_post' || $args[0] == 'delete_post' ) && isset( $args[2] ) ) {
-            $post_id = $args[2];
-            $post_categories = wp_get_post_categories( $post_id );
-            $allowed_categories = get_user_meta( $current_user->ID, 'smpm_allowed_categories', true );
-            $has_allowed_category = false;
-            if ( is_array( $allowed_categories ) && ! empty( $allowed_categories ) ) {
-                foreach ( $post_categories as $cat_id ) {
-                    if ( in_array( $cat_id, $allowed_categories ) ) {
-                        $has_allowed_category = true;
-                        break;
-                    }
-                }
-            }
-            if ( ! $has_allowed_category ) {
-                $allcaps['edit_post'] = false;
-                $allcaps['delete_post'] = false;
-            }
+        /*
+         * Mantém compatibilidade com verificações diretas
+         * realizadas pelo WordPress e pelo Elementor.
+         */
+        if ( $is_edit_request ) {
+            $allcaps['edit_post'] = $has_permission;
+            $allcaps['edit_page'] = $has_permission;
+        }
+
+        if ( $is_delete_request ) {
+            $allcaps['delete_post'] = $has_permission;
+            $allcaps['delete_page'] = $has_permission;
+        }
+
+        if ( $is_read_request ) {
+            $allcaps['read_post'] = $has_permission;
+            $allcaps['read_page'] = $has_permission;
         }
 
         return $allcaps;
@@ -449,27 +789,72 @@ class Saude_MG_Permission_Manager_Admin {
             );
         }
 
+        $site_name = trim(
+            wp_strip_all_tags(
+                (string) get_bloginfo( 'name' )
+            )
+        );
+
+        if ( '' === $site_name ) {
+            $site_name = esc_html__(
+                'Ver site',
+                'saude-mg-permission-manager'
+            );
+        }
+
         /*
-         * Remove todos os itens nativos, inclusive o item
-         * my-account que contém o avatar em seu HTML.
+         * Remove os itens da barra, preservando apenas
+         * os grupos estruturais necessários.
          */
         $nodes = $wp_admin_bar->get_nodes();
 
         if ( is_array( $nodes ) ) {
             foreach ( $nodes as $node ) {
-                if (
-                    isset( $node->id )
-                    && 'top-secondary' !== $node->id
-                ) {
-                    $wp_admin_bar->remove_node(
-                        $node->id
-                    );
+                if ( ! isset( $node->id ) ) {
+                    continue;
                 }
+
+                if (
+                    in_array(
+                        $node->id,
+                        array(
+                            'top-secondary',
+                        ),
+                        true
+                    )
+                ) {
+                    continue;
+                }
+
+                $wp_admin_bar->remove_node(
+                    $node->id
+                );
             }
         }
 
         /*
-         * Recria o item sem imagem, avatar ou link.
+         * Restaura o item wp-admin-bar-site-name.
+         * O link abre a página pública do site.
+         */
+        $wp_admin_bar->add_node(
+            array(
+                'id'     => 'site-name',
+                'parent' => false,
+                'title'  => esc_html( $site_name ),
+                'href'   => home_url( '/' ),
+                'meta'   => array(
+                    'class' => 'smpm-site-name',
+                    'title' => esc_attr__(
+                        'Visitar o site',
+                        'saude-mg-permission-manager'
+                    ),
+                ),
+            )
+        );
+
+        /*
+         * Recria o item do usuário sem avatar e sem link
+         * para edição do perfil.
          */
         $wp_admin_bar->add_node(
             array(
@@ -514,11 +899,25 @@ class Saude_MG_Permission_Manager_Admin {
                 z-index: 999 !important;
             }
 
-            #wpadminbar .ab-top-menu > li {
+            #wpadminbar
+            .ab-top-menu
+            > li:not(#wp-admin-bar-site-name) {
                 display: none !important;
             }
 
-            #wpadminbar .ab-top-secondary {
+            #wpadminbar
+            #wp-admin-bar-site-name {
+                display: block !important;
+            }
+
+            #wpadminbar
+            #wp-admin-bar-site-name
+            > .ab-item {
+                display: block !important;
+            }
+
+            #wpadminbar
+            .ab-top-secondary {
                 display: block !important;
                 float: right !important;
             }
@@ -558,15 +957,6 @@ class Saude_MG_Permission_Manager_Admin {
 
             #wpadminbar
             #wp-admin-bar-my-account
-            > .ab-item
-            .display-name {
-                display: inline !important;
-                margin: 0 !important;
-                padding: 0 !important;
-            }
-
-            #wpadminbar
-            #wp-admin-bar-my-account
             img,
             #wpadminbar
             #wp-admin-bar-my-account
@@ -579,14 +969,6 @@ class Saude_MG_Permission_Manager_Admin {
             #wpadminbar
             #wp-admin-bar-edit-profile {
                 display: none !important;
-                height: 0 !important;
-                margin: 0 !important;
-                max-height: 0 !important;
-                max-width: 0 !important;
-                opacity: 0 !important;
-                padding: 0 !important;
-                visibility: hidden !important;
-                width: 0 !important;
             }
 
             #wpadminbar
@@ -608,55 +990,6 @@ class Saude_MG_Permission_Manager_Admin {
                 text-align: left;
             }
         </style>';
-
-        /*
-         * Remove por JavaScript qualquer avatar reinserido
-         * posteriormente por outro plugin.
-         */
-        echo '<script>
-            document.addEventListener(
-                "DOMContentLoaded",
-                function () {
-                    function smpmRemoveUserAvatar() {
-                        var account = document.querySelector(
-                            "#wp-admin-bar-my-account"
-                        );
-
-                        if (!account) {
-                            return;
-                        }
-
-                        account.querySelectorAll(
-                            "img, .avatar, .ab-icon"
-                        ).forEach(function (element) {
-                            element.remove();
-                        });
-
-                        var accountLink = account.querySelector(
-                            ":scope > .ab-item"
-                        );
-
-                        if (accountLink) {
-                            accountLink.removeAttribute("href");
-                        }
-                    }
-
-                    smpmRemoveUserAvatar();
-
-                    if (document.body) {
-                        new MutationObserver(
-                            smpmRemoveUserAvatar
-                        ).observe(
-                            document.body,
-                            {
-                                childList: true,
-                                subtree: true
-                            }
-                        );
-                    }
-                }
-            );
-        </script>';
     }
 
     public function smpm_remove_dashboard_widgets() {
@@ -683,11 +1016,8 @@ class Saude_MG_Permission_Manager_Admin {
         }
 
         /*
-         * O CSS desta restrição agora é carregado junto
-         * ao stylesheet nativo wp-admin.
-         *
-         * Este método permanece apenas para compatibilidade
-         * com o hook registrado pelas versões anteriores.
+         * Os elementos são ocultados pelo CSS carregado
+         * no cabeçalho administrativo.
          */
     }
 
@@ -1524,9 +1854,7 @@ class Saude_MG_Permission_Manager_Admin {
         return $clauses;
     }
 
-    public function smpm_enqueue_editor_critical_styles(
-        $hook_suffix
-    ) {
+    public function smpm_output_editor_menu_styles() {
         $current_user = wp_get_current_user();
 
         if (
@@ -1539,74 +1867,14 @@ class Saude_MG_Permission_Manager_Admin {
             return;
         }
 
-        $site_icon_url = get_site_icon_url( 160 );
-
-        $background_image = 'none';
-
-        if ( ! empty( $site_icon_url ) ) {
-            $background_image = sprintf(
-                'url("%s")',
-                esc_url_raw( $site_icon_url )
-            );
-        }
-
         /*
-         * Garante que o handle nativo esteja na fila.
-         * O CSS inline será impresso imediatamente depois
-         * do stylesheet principal do wp-admin.
+         * Mantém apenas as restrições funcionais do menu.
+         * Nenhuma logo, imagem, dimensão ou posicionamento
+         * personalizado é aplicado à barra lateral.
          */
-        wp_enqueue_style( 'wp-admin' );
-
-        $critical_css = '
-            /*
-             * Layout crítico do perfil Editor.
-             * Este bloco é impresso junto ao CSS nativo,
-             * antes da primeira renderização da página.
-             */
-            html.wp-toolbar {
-                padding-top: 32px;
-            }
-
+        echo '<style id="smpm-editor-menu-restrictions">
             #wpadminbar {
                 z-index: 999 !important;
-            }
-
-            #adminmenuback,
-            #adminmenuwrap,
-            #adminmenu {
-                width: 160px;
-            }
-
-            #adminmenuwrap {
-                box-sizing: border-box;
-                padding-top: 1px;
-            }
-
-            #adminmenuwrap::before {
-                background-image: '
-                . $background_image .
-                ';
-                background-position: center;
-                background-repeat: no-repeat;
-                background-size: contain;
-                box-sizing: border-box;
-                content: "";
-                display: block;
-                height: 80px;
-                margin: 18px auto;
-                min-height: 80px;
-                min-width: 80px;
-                width: 80px;
-            }
-
-            #adminmenu {
-                clear: both;
-                margin-top: 0;
-            }
-
-            #wpcontent,
-            #wpfooter {
-                margin-left: 160px;
             }
 
             #adminmenu
@@ -1626,12 +1894,6 @@ class Saude_MG_Permission_Manager_Admin {
             #menu-media,
             #menu-pages {
                 display: block;
-            }
-
-            body.sticky-menu #adminmenuwrap,
-            .sticky-menu #adminmenuwrap {
-                margin-top: -40px;
-                position: fixed;
             }
 
             body.index-php #wpcontent {
@@ -1656,52 +1918,12 @@ class Saude_MG_Permission_Manager_Admin {
                 display: none !important;
             }
 
-            @media screen and (max-width: 960px) {
-                .auto-fold #adminmenuback,
-                .auto-fold #adminmenuwrap,
-                .auto-fold #adminmenu {
-                    width: 160px;
-                }
-
-                .auto-fold #wpcontent,
-                .auto-fold #wpfooter {
-                    margin-left: 160px;
-                }
-
-                .auto-fold #adminmenuwrap::before {
-                    height: 80px;
-                    margin: 18px auto;
-                    min-height: 80px;
-                    min-width: 80px;
-                    width: 80px;
-                }
-            }
-
             @media screen and (max-width: 782px) {
-                html.wp-toolbar {
-                    padding-top: 46px;
-                }
-
-                body.auto-fold #wpcontent,
-                body.auto-fold #wpfooter {
-                    margin-left: 0;
-                }
-
                 body.index-php #wpcontent {
                     padding-right: 10px !important;
                 }
-
-                body.sticky-menu #adminmenuwrap,
-                .sticky-menu #adminmenuwrap {
-                    margin-top: 0;
-                }
             }
-        ';
-
-        wp_add_inline_style(
-            'wp-admin',
-            $critical_css
-        );
+        </style>';
     }
 
 }
