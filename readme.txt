@@ -3,7 +3,7 @@ Contributors: manus
 Tags: permissions, users, roles, editor, access-control
 Requires at least: 5.0
 Tested up to: 6.4
-Stable tag: 17.13
+Stable tag: 17.14
 Requires PHP: 7.4
 License: GPL2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -70,6 +70,37 @@ O plugin foi desenvolvido para integrar-se perfeitamente com a lógica nativa de
 3. Modal com controles de páginas, categorias e plugins
 
 == Changelog ==
+
+= 17.14 =
+* Adicionado o link Configurações à linha de ações do plugin.
+* Criada uma tela administrativa exclusiva para configurações do GFE.
+* A tela de configurações não foi adicionada ao menu principal.
+* Adicionada configuração da mensagem principal do Painel.
+* Adicionada configuração da mensagem de primeiro acesso.
+* Adicionado suporte ao marcador {nome}.
+* Mantidas as correções emergenciais da versão 17.13.2.
+
+
+= 17.13.2 =
+* Corrigida a exibição indevida de categorias não autorizadas para Editores.
+* Restritas as categorias do filtro da listagem de Posts.
+* Restritas as categorias exibidas no editor clássico.
+* Restritas as categorias exibidas no editor de blocos.
+* Adicionada restrição para consultas AJAX e REST de categorias.
+* Aplicada uma restrição SQL complementar por meio de terms_clauses.
+* Preservadas as correções de criação de Posts da versão 17.13.1.
+* Preservada a correção das chaves exclude e exclude_tree.
+
+
+= 17.13.1 =
+* Corrigida a criação de novos posts por usuários Editores.
+* Corrigida a edição do auto-draft criado pelo WordPress.
+* Impedida a conversão de WP_Block_Editor_Context para inteiro.
+* Adicionada validação de tipo antes da leitura do ID do post.
+* Corrigido o aviso de chave exclude_tree inexistente.
+* Mantidas as chaves esperadas internamente pelo WP_Term_Query.
+* Preservadas as restrições de páginas e categorias da versão 17.13.
+
 
 = 17.13 =
 * Corrigida a identificação de páginas abertas por post.php.

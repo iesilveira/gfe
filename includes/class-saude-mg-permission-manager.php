@@ -71,6 +71,11 @@ class Saude_MG_Permission_Manager {
         $this->loader->add_filter( 'get_terms_args', $plugin_admin, 'smpm_filter_post_categories', 9999, 2 );
 
         $this->loader->add_action( 'admin_head', $plugin_admin, 'smpm_output_editor_menu_styles', 0 );
+
+        $this->loader->add_filter( 'terms_clauses', $plugin_admin, 'smpm_restrict_visible_categories', 9999, 3 );
+        $this->loader->add_action( 'admin_menu', $plugin_admin, 'smpm_add_settings_page', 9999 );
+        $this->loader->add_action( 'admin_init', $plugin_admin, 'smpm_register_settings' );
+        $this->loader->add_filter( 'plugin_action_links_' . plugin_basename( SMPM_PLUGIN_DIR . 'saude-mg-permission-manager.php' ), $plugin_admin, 'smpm_add_plugin_action_links', 10, 1 );
     }
 
     public function run() {

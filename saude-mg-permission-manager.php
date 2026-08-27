@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Gestor de Funções para Editores - SES/MG
  * Description: Restringe e personaliza o acesso de usuários com função de Editor no WordPress.
- * Version: 17.13
+ * Version: 17.14
  * Author: Ismael Elói (ASCOM)
  * Author URI: https://www.saude.mg.gov.br
  * License: GPL2
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit; // Exit if accessed directly.
 }
 
-define( 'SMPM_VERSION', '17.13' );
+define( 'SMPM_VERSION', '17.14' );
 define( 'SMPM_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SMPM_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 

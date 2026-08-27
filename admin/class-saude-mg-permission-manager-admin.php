@@ -389,6 +389,10 @@ class Saude_MG_Permission_Manager_Admin {
         $caps,
         $args
     ) {
+        if ( ! is_array( $allcaps ) ) {
+            return $allcaps;
+        }
+
         $current_user = wp_get_current_user();
 
         if (
@@ -402,8 +406,8 @@ class Saude_MG_Permission_Manager_Admin {
         }
 
         if (
-            ! isset( $args[0], $args[2] )
-            || ! is_array( $allcaps )
+            ! is_array( $args )
+            || ! isset( $args[0] )
         ) {
             return $allcaps;
         }
@@ -412,50 +416,88 @@ class Saude_MG_Permission_Manager_Admin {
             (string) $args[0]
         );
 
-        $post_id = absint( $args[2] );
+        $controlled_capabilities = array(
+            'edit_post',
+            'edit_page',
+            'delete_post',
+            'delete_page',
+            'read_post',
+            'read_page',
+        );
 
+        if (
+            ! in_array(
+                $requested_capability,
+                $controlled_capabilities,
+                true
+            )
+        ) {
+            return $allcaps;
+        }
+
+        /*
+         * O terceiro argumento de user_has_cap nem sempre
+         * contém um ID numérico.
+         *
+         * Plugins e o editor de blocos podem fornecer um
+         * WP_Post ou um objeto de contexto. Nunca devemos
+         * enviar esses objetos diretamente para absint().
+         */
+        $post_id = 0;
+        $context = $args[2] ?? null;
+
+        if (
+            is_int( $context )
+            || is_string( $context )
+            || is_float( $context )
+        ) {
+            if ( is_numeric( $context ) ) {
+                $post_id = absint( $context );
+            }
+        } elseif ( $context instanceof WP_Post ) {
+            $post_id = absint( $context->ID );
+        } elseif (
+            class_exists(
+                'WP_Block_Editor_Context',
+                false
+            )
+            && $context instanceof WP_Block_Editor_Context
+            && isset( $context->post )
+            && $context->post instanceof WP_Post
+        ) {
+            $post_id = absint(
+                $context->post->ID
+            );
+        } elseif (
+            is_object( $context )
+            && isset( $context->ID )
+            && is_numeric( $context->ID )
+        ) {
+            $post_id = absint( $context->ID );
+        } elseif (
+            is_array( $context )
+            && isset( $context['ID'] )
+            && is_numeric( $context['ID'] )
+        ) {
+            $post_id = absint(
+                $context['ID']
+            );
+        }
+
+        /*
+         * Sem um post real, não existe uma permissão
+         * individual que o GFE deva alterar.
+         *
+         * As capacidades gerais de criação são tratadas
+         * por smpm_fix_new_post_capabilities().
+         */
         if ( $post_id <= 0 ) {
             return $allcaps;
         }
 
         $post = get_post( $post_id );
 
-        if ( ! $post ) {
-            return $allcaps;
-        }
-
-        $is_edit_request = in_array(
-            $requested_capability,
-            array(
-                'edit_post',
-                'edit_page',
-            ),
-            true
-        );
-
-        $is_delete_request = in_array(
-            $requested_capability,
-            array(
-                'delete_post',
-                'delete_page',
-            ),
-            true
-        );
-
-        $is_read_request = in_array(
-            $requested_capability,
-            array(
-                'read_post',
-                'read_page',
-            ),
-            true
-        );
-
-        if (
-            ! $is_edit_request
-            && ! $is_delete_request
-            && ! $is_read_request
-        ) {
+        if ( ! $post instanceof WP_Post ) {
             return $allcaps;
         }
 
@@ -468,7 +510,9 @@ class Saude_MG_Permission_Manager_Admin {
                 true
             );
 
-            $allowed_pages = is_array( $allowed_pages )
+            $allowed_pages = is_array(
+                $allowed_pages
+            )
                 ? array_values(
                     array_unique(
                         array_filter(
@@ -508,58 +552,84 @@ class Saude_MG_Permission_Manager_Admin {
                 )
                 : array();
 
-            $post_categories = array_values(
-                array_unique(
-                    array_filter(
-                        array_map(
-                            'absint',
-                            wp_get_post_categories(
-                                $post_id
-                            )
-                        )
+            /*
+             * Um novo post é criado inicialmente como
+             * auto-draft e ainda não possui categorias.
+             *
+             * O Editor pode editar esse auto-draft quando:
+             * - ele é o autor do conteúdo; e
+             * - possui ao menos uma categoria permitida.
+             *
+             * A categoria efetiva continuará limitada pela
+             * interface e pelas demais regras do GFE.
+             */
+            $is_own_new_post = (
+                in_array(
+                    $post->post_status,
+                    array(
+                        'auto-draft',
+                        'draft',
+                    ),
+                    true
+                )
+                && absint( $post->post_author )
+                    === absint( $current_user->ID )
+                && empty(
+                    wp_get_post_categories(
+                        $post_id
                     )
                 )
             );
 
-            $has_permission = ! empty(
-                array_intersect(
-                    $post_categories,
-                    $allowed_categories
-                )
-            );
+            if (
+                $is_own_new_post
+                && ! empty( $allowed_categories )
+            ) {
+                $has_permission = true;
+            } else {
+                $post_categories = array_values(
+                    array_unique(
+                        array_filter(
+                            array_map(
+                                'absint',
+                                wp_get_post_categories(
+                                    $post_id
+                                )
+                            )
+                        )
+                    )
+                );
+
+                $has_permission = ! empty(
+                    array_intersect(
+                        $post_categories,
+                        $allowed_categories
+                    )
+                );
+            }
         } else {
             return $allcaps;
         }
 
         /*
-         * map_meta_cap entrega em $caps as capacidades
-         * primitivas que precisam ser liberadas ou negadas.
+         * $caps contém as capacidades primitivas calculadas
+         * pelo WordPress para esta operação.
          */
-        foreach ( (array) $caps as $primitive_cap ) {
-            if ( $has_permission ) {
-                $allcaps[ $primitive_cap ] = true;
-            } else {
-                $allcaps[ $primitive_cap ] = false;
+        foreach (
+            array_filter( (array) $caps )
+            as $primitive_capability
+        ) {
+            if (
+                ! is_string(
+                    $primitive_capability
+                )
+            ) {
+                continue;
             }
-        }
 
-        /*
-         * Mantém compatibilidade com verificações diretas
-         * realizadas pelo WordPress e pelo Elementor.
-         */
-        if ( $is_edit_request ) {
-            $allcaps['edit_post'] = $has_permission;
-            $allcaps['edit_page'] = $has_permission;
-        }
-
-        if ( $is_delete_request ) {
-            $allcaps['delete_post'] = $has_permission;
-            $allcaps['delete_page'] = $has_permission;
-        }
-
-        if ( $is_read_request ) {
-            $allcaps['read_post'] = $has_permission;
-            $allcaps['read_page'] = $has_permission;
+            $allcaps[
+                $primitive_capability
+            ] = $has_permission;
         }
 
         return $allcaps;
@@ -1023,33 +1093,99 @@ class Saude_MG_Permission_Manager_Admin {
 
     public function smpm_custom_dashboard_content() {
         global $pagenow;
-        if ( $pagenow != 'index.php' ) return;
-        
-        $current_user = wp_get_current_user();
-        if ( ! in_array( 'editor', (array) $current_user->roles ) ) {
+
+        if ( 'index.php' !== $pagenow ) {
             return;
         }
 
-        $allowed_pages = get_user_meta( $current_user->ID, 'smpm_allowed_pages', true );
-        $allowed_categories = get_user_meta( $current_user->ID, 'smpm_allowed_categories', true );
-        $first_name = $current_user->user_firstname ? $current_user->user_firstname : $current_user->display_name;
+        $current_user = wp_get_current_user();
 
-        echo '<div id="smpm-custom-dashboard" style="margin-top: 20px; background: #fff; padding: 20px; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">';
-        if ( ( ! is_array( $allowed_pages ) || empty( $allowed_pages ) ) && ( ! is_array( $allowed_categories ) || empty( $allowed_categories ) ) ) {
-            echo '<h1>Bem vindo, ' . esc_html( $first_name ) . '!</h1>';
-            echo '<h3>Este é o seu primeiro acesso?</h3>';
-            echo '<p>Entre em contato com o Núcleo de Canais Digitais da ASCOM para a liberação de conteúdo e permissões.</p>';
-        } else {
-            echo '<h1>Bem-vindo(a) à Área de Administração do Portal da Saúde MG</h1>';
-            echo '<p>Olá, ' . esc_html( $first_name ) . '!👋</p>';
-            echo '<p>Seja bem-vindo(a) à área administrativa do Portal da Saúde de Minas Gerais. O seu perfil foi autorizado pela Assessoria de Comunicação (ASCOM) para gerenciar conteúdos de páginas e/ou posts específicos relacionados à sua área técnica.</p>';
-            echo '<p>Lembre-se de que todas as alterações realizadas aqui são refletidas diretamente no portal, por isso, revise com atenção cada publicação antes de atualizar.</p>';
-            echo '<p>Em caso de dúvidas sobre a utilização da ferramenta ou para solicitar suporte, entre em contato com a equipe da ASCOM pelo e-mail <strong>sesdigitalmg@gmail.com</strong>.</p>';
-            echo '<p>Conte com a gente para garantir que as informações publicadas estejam sempre atualizadas, claras e de qualidade.</p>';
-            echo '<p>Obrigado por contribuir com a comunicação da Saúde MG!</p>';
+        if (
+            ! in_array(
+                'editor',
+                (array) $current_user->roles,
+                true
+            )
+        ) {
+            return;
         }
+
+        $allowed_pages = get_user_meta(
+            $current_user->ID,
+            'smpm_allowed_pages',
+            true
+        );
+
+        $allowed_categories = get_user_meta(
+            $current_user->ID,
+            'smpm_allowed_categories',
+            true
+        );
+
+        $has_pages = (
+            is_array( $allowed_pages )
+            && ! empty( $allowed_pages )
+        );
+
+        $has_categories = (
+            is_array( $allowed_categories )
+            && ! empty( $allowed_categories )
+        );
+
+        $first_name = trim(
+            (string) $current_user->user_firstname
+        );
+
+        if ( '' === $first_name ) {
+            $first_name = trim(
+                (string) $current_user->display_name
+            );
+        }
+
+        if ( '' === $first_name ) {
+            $first_name = (
+                (string) $current_user->user_login
+            );
+        }
+
+        if ( ! $has_pages && ! $has_categories ) {
+            $message = get_option(
+                'smpm_first_access_message',
+                $this->smpm_get_default_first_access_message()
+            );
+        } else {
+            $message = get_option(
+                'smpm_dashboard_message',
+                $this->smpm_get_default_dashboard_message()
+            );
+        }
+
+        $message = str_replace(
+            '{nome}',
+            esc_html( $first_name ),
+            (string) $message
+        );
+
+        echo '<div id="smpm-custom-dashboard" '
+            . 'style="margin-top:20px;'
+            . 'background:#fff;'
+            . 'padding:20px;'
+            . 'border:1px solid #ccd0d4;'
+            . 'box-shadow:0 1px 1px '
+            . 'rgba(0,0,0,.04);">';
+
+        echo wp_kses_post( $message );
+
         echo '</div>';
-        echo '<script>jQuery(document).ready(function($) { $("#wpbody-content .wrap").hide(); $("#smpm-custom-dashboard").prependTo("#wpbody-content"); });</script>';
+
+        echo '<script>
+            jQuery(function ($) {
+                $("#wpbody-content .wrap").hide();
+
+                $("#smpm-custom-dashboard")
+                    .prependTo("#wpbody-content");
+            });
+        </script>';
     }
 
     public function smpm_block_direct_access() {
@@ -1117,18 +1253,101 @@ class Saude_MG_Permission_Manager_Admin {
         }
     }
 
-    public function smpm_fix_new_post_capabilities( $allcaps, $cap, $args ) {
-        $current_user = wp_get_current_user();
-        if ( ! in_array( 'editor', (array) $current_user->roles ) ) {
+    public function smpm_fix_new_post_capabilities(
+        $allcaps,
+        $caps,
+        $args
+    ) {
+        if ( ! is_array( $allcaps ) ) {
             return $allcaps;
         }
-        if ( in_array( 'edit_posts', $cap ) || in_array( 'publish_posts', $cap ) ) {
-            $allowed_categories = get_user_meta( $current_user->ID, 'smpm_allowed_categories', true );
-            if ( is_array( $allowed_categories ) && ! empty( $allowed_categories ) ) {
-                $allcaps['edit_posts'] = true;
-                $allcaps['publish_posts'] = true;
-            }
+
+        $current_user = wp_get_current_user();
+
+        if (
+            ! in_array(
+                'editor',
+                (array) $current_user->roles,
+                true
+            )
+        ) {
+            return $allcaps;
         }
+
+        $allowed_categories = get_user_meta(
+            $current_user->ID,
+            'smpm_allowed_categories',
+            true
+        );
+
+        $allowed_categories = is_array(
+            $allowed_categories
+        )
+            ? array_values(
+                array_unique(
+                    array_filter(
+                        array_map(
+                            'absint',
+                            $allowed_categories
+                        )
+                    )
+                )
+            )
+            : array();
+
+        /*
+         * Sem categorias permitidas, o Editor não deve
+         * criar nem publicar novos posts.
+         */
+        if ( empty( $allowed_categories ) ) {
+            return $allcaps;
+        }
+
+        $requested_capability = '';
+
+        if (
+            is_array( $args )
+            && isset( $args[0] )
+            && is_string( $args[0] )
+        ) {
+            $requested_capability = $args[0];
+        }
+
+        $primitive_capabilities = array_filter(
+            (array) $caps,
+            'is_string'
+        );
+
+        $is_post_creation_request = (
+            in_array(
+                'edit_posts',
+                $primitive_capabilities,
+                true
+            )
+            || in_array(
+                'publish_posts',
+                $primitive_capabilities,
+                true
+            )
+            || in_array(
+                $requested_capability,
+                array(
+                    'edit_posts',
+                    'publish_posts',
+                    'create_posts',
+                ),
+                true
+            )
+        );
+
+        if ( ! $is_post_creation_request ) {
+            return $allcaps;
+        }
+
+        $allcaps['edit_posts'] = true;
+        $allcaps['publish_posts'] = true;
+        $allcaps['create_posts'] = true;
+
         return $allcaps;
     }
 
@@ -1240,7 +1459,7 @@ class Saude_MG_Permission_Manager_Admin {
         $args,
         $taxonomies
     ) {
-        if ( ! is_admin() || ! is_array( $args ) ) {
+        if ( ! is_array( $args ) ) {
             return $args;
         }
 
@@ -1259,7 +1478,8 @@ class Saude_MG_Permission_Manager_Admin {
         $current_user = wp_get_current_user();
 
         if (
-            ! in_array(
+            ! $current_user->exists()
+            || ! in_array(
                 'editor',
                 (array) $current_user->roles,
                 true
@@ -1289,18 +1509,28 @@ class Saude_MG_Permission_Manager_Admin {
             )
             : array();
 
-        $existing_include = isset(
-            $args['include']
-        )
-            ? array_values(
-                array_filter(
-                    array_map(
-                        'absint',
-                        (array) $args['include']
+        /*
+         * Se a consulta já possui uma lista include,
+         * mantém somente a interseção entre essa lista
+         * e as categorias autorizadas.
+         */
+        $existing_include = array();
+
+        if (
+            isset( $args['include'] )
+            && '' !== $args['include']
+        ) {
+            $existing_include = array_values(
+                array_unique(
+                    array_filter(
+                        array_map(
+                            'absint',
+                            (array) $args['include']
+                        )
                     )
                 )
-            )
-            : array();
+            );
+        }
 
         if (
             ! empty( $existing_include )
@@ -1314,14 +1544,23 @@ class Saude_MG_Permission_Manager_Admin {
             );
         }
 
-        $args['include'] = ! empty(
-            $allowed_categories
+        $args['include'] = (
+            ! empty( $allowed_categories )
         )
             ? $allowed_categories
             : array( 0 );
 
-        unset( $args['exclude'] );
-        unset( $args['exclude_tree'] );
+        /*
+         * Essas chaves devem continuar presentes para
+         * evitar os avisos corrigidos na versão 17.13.1.
+         */
+        if ( ! isset( $args['exclude'] ) ) {
+            $args['exclude'] = array();
+        }
+
+        if ( ! isset( $args['exclude_tree'] ) ) {
+            $args['exclude_tree'] = array();
+        }
 
         return $args;
     }
@@ -1924,6 +2163,404 @@ class Saude_MG_Permission_Manager_Admin {
                 }
             }
         </style>';
+    }
+
+    public function smpm_restrict_visible_categories(
+        $clauses,
+        $taxonomies,
+        $args
+    ) {
+        if ( ! is_array( $clauses ) ) {
+            return $clauses;
+        }
+
+        $taxonomies = (array) $taxonomies;
+
+        if (
+            ! in_array(
+                'category',
+                $taxonomies,
+                true
+            )
+        ) {
+            return $clauses;
+        }
+
+        $current_user = wp_get_current_user();
+
+        if (
+            ! $current_user->exists()
+            || ! in_array(
+                'editor',
+                (array) $current_user->roles,
+                true
+            )
+        ) {
+            return $clauses;
+        }
+
+        /*
+         * A restrição precisa funcionar também nas
+         * requisições REST e AJAX do editor de blocos.
+         *
+         * Por isso, não limitamos a execução apenas
+         * ao retorno de is_admin().
+         */
+        $allowed_categories = get_user_meta(
+            $current_user->ID,
+            'smpm_allowed_categories',
+            true
+        );
+
+        $allowed_categories = is_array(
+            $allowed_categories
+        )
+            ? array_values(
+                array_unique(
+                    array_filter(
+                        array_map(
+                            'absint',
+                            $allowed_categories
+                        )
+                    )
+                )
+            )
+            : array();
+
+        if ( ! isset( $clauses['where'] ) ) {
+            $clauses['where'] = '';
+        }
+
+        /*
+         * Sem categorias permitidas, nenhuma categoria
+         * deve ser retornada para o Editor.
+         */
+        if ( empty( $allowed_categories ) ) {
+            $clauses['where'] .= ' AND 1 = 0';
+
+            return $clauses;
+        }
+
+        /*
+         * Os IDs são convertidos com absint antes da
+         * montagem da cláusula, impedindo a inserção
+         * de valores arbitrários na consulta.
+         */
+        $category_ids = implode(
+            ',',
+            array_map(
+                'absint',
+                $allowed_categories
+            )
+        );
+
+        /*
+         * WP_Term_Query utiliza o alias "tt" para a
+         * tabela term_taxonomy.
+         *
+         * A restrição no SQL garante que dropdowns,
+         * checklists, REST e AJAX recebam somente as
+         * categorias atribuídas ao Editor.
+         */
+        $clauses['where'] .= sprintf(
+            ' AND tt.term_id IN (%s)',
+            $category_ids
+        );
+
+        return $clauses;
+    }
+
+    private function smpm_get_default_dashboard_message() {
+        return '<h1>Bem-vindo(a) à Área de Administração '
+            . 'do Portal da Saúde MG</h1>'
+            . '<p>Olá, {nome}! 👋</p>'
+            . '<p>Seja bem-vindo(a) à área administrativa '
+            . 'do Portal da Saúde de Minas Gerais. O seu '
+            . 'perfil foi autorizado pela Assessoria de '
+            . 'Comunicação (ASCOM) para gerenciar conteúdos '
+            . 'de páginas e/ou posts específicos relacionados '
+            . 'à sua área técnica.</p>'
+            . '<p>Lembre-se de que todas as alterações '
+            . 'realizadas aqui são refletidas diretamente '
+            . 'no portal, por isso, revise com atenção cada '
+            . 'publicação antes de atualizar.</p>'
+            . '<p>Em caso de dúvidas sobre a utilização da '
+            . 'ferramenta ou para solicitar suporte, entre '
+            . 'em contato com a equipe da ASCOM pelo e-mail '
+            . '<strong>sesdigitalmg@gmail.com</strong>.</p>'
+            . '<p>Conte com a gente para garantir que as '
+            . 'informações publicadas estejam sempre '
+            . 'atualizadas, claras e de qualidade.</p>'
+            . '<p>Obrigado por contribuir com a comunicação '
+            . 'da Saúde MG!</p>';
+    }
+
+    private function smpm_get_default_first_access_message() {
+        return '<h1>Bem-vindo, {nome}!</h1>'
+            . '<h3>Este é o seu primeiro acesso?</h3>'
+            . '<p>Entre em contato com o Núcleo de Canais '
+            . 'Digitais da ASCOM para a liberação de '
+            . 'conteúdo e permissões.</p>';
+    }
+
+    public function smpm_sanitize_dashboard_message(
+        $message
+    ) {
+        if ( ! is_string( $message ) ) {
+            return '';
+        }
+
+        return wp_kses_post(
+            wp_unslash( $message )
+        );
+    }
+
+    public function smpm_register_settings() {
+        register_setting(
+            'smpm_gfe_settings',
+            'smpm_dashboard_message',
+            array(
+                'type'              => 'string',
+                'sanitize_callback' => array(
+                    $this,
+                    'smpm_sanitize_dashboard_message',
+                ),
+                'default'           => (
+                    $this->smpm_get_default_dashboard_message()
+                ),
+            )
+        );
+
+        register_setting(
+            'smpm_gfe_settings',
+            'smpm_first_access_message',
+            array(
+                'type'              => 'string',
+                'sanitize_callback' => array(
+                    $this,
+                    'smpm_sanitize_dashboard_message',
+                ),
+                'default'           => (
+                    $this->smpm_get_default_first_access_message()
+                ),
+            )
+        );
+    }
+
+    public function smpm_add_settings_page() {
+        add_submenu_page(
+            null,
+            __(
+                'Configurações do GFE',
+                'saude-mg-permission-manager'
+            ),
+            __(
+                'Configurações do GFE',
+                'saude-mg-permission-manager'
+            ),
+            'manage_options',
+            'smpm-gfe-settings',
+            array(
+                $this,
+                'smpm_render_settings_page',
+            )
+        );
+    }
+
+    public function smpm_add_plugin_action_links(
+        $links
+    ) {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return $links;
+        }
+
+        $settings_link = sprintf(
+            '<a href="%s">%s</a>',
+            esc_url(
+                admin_url(
+                    'admin.php?page=smpm-gfe-settings'
+                )
+            ),
+            esc_html__(
+                'Configurações',
+                'saude-mg-permission-manager'
+            )
+        );
+
+        array_unshift(
+            $links,
+            $settings_link
+        );
+
+        return $links;
+    }
+
+    public function smpm_render_settings_page() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die(
+                esc_html__(
+                    'Você não tem permissão para acessar '
+                    . 'esta página.',
+                    'saude-mg-permission-manager'
+                ),
+                esc_html__(
+                    'Acesso negado',
+                    'saude-mg-permission-manager'
+                ),
+                array(
+                    'response' => 403,
+                )
+            );
+        }
+
+        $dashboard_message = get_option(
+            'smpm_dashboard_message',
+            $this->smpm_get_default_dashboard_message()
+        );
+
+        $first_access_message = get_option(
+            'smpm_first_access_message',
+            $this->smpm_get_default_first_access_message()
+        );
+
+        ?>
+        <div class="wrap">
+            <h1>
+                <?php esc_html_e(
+                    'Configurações do GFE',
+                    'saude-mg-permission-manager'
+                ); ?>
+            </h1>
+
+            <p>
+                <?php esc_html_e(
+                    'Configure as mensagens exibidas aos '
+                    . 'Editores na página Painel.',
+                    'saude-mg-permission-manager'
+                ); ?>
+            </p>
+
+            <div
+                class="notice notice-info inline"
+                style="margin:16px 0;"
+            >
+                <p>
+                    <?php
+                    echo wp_kses_post(
+                        __(
+                            'Use o marcador '
+                            . '<code>{nome}</code> para '
+                            . 'inserir automaticamente o nome '
+                            . 'do Editor.',
+                            'saude-mg-permission-manager'
+                        )
+                    );
+                    ?>
+                </p>
+            </div>
+
+            <form
+                method="post"
+                action="options.php"
+            >
+                <?php
+                settings_fields(
+                    'smpm_gfe_settings'
+                );
+                ?>
+
+                <div
+                    class="card"
+                    style="
+                        max-width:none;
+                        margin-top:20px;
+                        padding:20px;
+                    "
+                >
+                    <h2>
+                        <?php esc_html_e(
+                            'Mensagem principal do Painel',
+                            'saude-mg-permission-manager'
+                        ); ?>
+                    </h2>
+
+                    <p>
+                        <?php esc_html_e(
+                            'Exibida quando o Editor possui '
+                            . 'páginas ou categorias liberadas.',
+                            'saude-mg-permission-manager'
+                        ); ?>
+                    </p>
+
+                    <?php
+                    wp_editor(
+                        $dashboard_message,
+                        'smpm_dashboard_message_editor',
+                        array(
+                            'textarea_name' => (
+                                'smpm_dashboard_message'
+                            ),
+                            'textarea_rows' => 14,
+                            'media_buttons' => false,
+                            'teeny'         => false,
+                            'quicktags'     => true,
+                        )
+                    );
+                    ?>
+                </div>
+
+                <div
+                    class="card"
+                    style="
+                        max-width:none;
+                        margin-top:20px;
+                        padding:20px;
+                    "
+                >
+                    <h2>
+                        <?php esc_html_e(
+                            'Mensagem de primeiro acesso',
+                            'saude-mg-permission-manager'
+                        ); ?>
+                    </h2>
+
+                    <p>
+                        <?php esc_html_e(
+                            'Exibida quando o Editor ainda '
+                            . 'não possui páginas nem '
+                            . 'categorias liberadas.',
+                            'saude-mg-permission-manager'
+                        ); ?>
+                    </p>
+
+                    <?php
+                    wp_editor(
+                        $first_access_message,
+                        'smpm_first_access_message_editor',
+                        array(
+                            'textarea_name' => (
+                                'smpm_first_access_message'
+                            ),
+                            'textarea_rows' => 9,
+                            'media_buttons' => false,
+                            'teeny'         => false,
+                            'quicktags'     => true,
+                        )
+                    );
+                    ?>
+                </div>
+
+                <?php
+                submit_button(
+                    __(
+                        'Salvar configurações',
+                        'saude-mg-permission-manager'
+                    )
+                );
+                ?>
+            </form>
+        </div>
+        <?php
     }
 
 }
