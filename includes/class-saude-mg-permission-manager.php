@@ -76,6 +76,7 @@ class Saude_MG_Permission_Manager {
         $this->loader->add_action( 'admin_menu', $plugin_admin, 'smpm_add_settings_page', 9999 );
         $this->loader->add_action( 'admin_init', $plugin_admin, 'smpm_register_settings' );
         $this->loader->add_filter( 'plugin_action_links_' . plugin_basename( SMPM_PLUGIN_DIR . 'saude-mg-permission-manager.php' ), $plugin_admin, 'smpm_add_plugin_action_links', 10, 1 );
+        $this->loader->add_action( 'admin_menu', $plugin_admin, 'smpm_add_access_denied_page', 9998 );
     }
 
     public function run() {

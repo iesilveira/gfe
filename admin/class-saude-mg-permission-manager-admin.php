@@ -142,7 +142,8 @@ class Saude_MG_Permission_Manager_Admin {
         $current_user = wp_get_current_user();
 
         if (
-            ! in_array(
+            ! $current_user->exists()
+            || ! in_array(
                 'editor',
                 (array) $current_user->roles,
                 true
@@ -151,18 +152,18 @@ class Saude_MG_Permission_Manager_Admin {
             return;
         }
 
+        if ( $this->smpm_is_access_denied_screen() ) {
+            return;
+        }
+
         global $pagenow;
 
-        if (
-            ! in_array(
-                $pagenow,
-                array(
-                    'post.php',
-                    'edit.php',
-                ),
-                true
-            )
-        ) {
+        /*
+         * Esta rotina trata conteúdos individuais.
+         * As telas administrativas gerais são verificadas
+         * por smpm_block_direct_access().
+         */
+        if ( 'post.php' !== $pagenow ) {
             return;
         }
 
@@ -182,36 +183,34 @@ class Saude_MG_Permission_Manager_Admin {
             );
         }
 
-        /*
-         * Em post.php, o parâmetro post_type normalmente não
-         * existe. O tipo correto precisa ser obtido pelo ID.
-         * Isso também atende a edição pelo Elementor.
-         */
-        if ( $post_id > 0 ) {
-            $post_type = get_post_type( $post_id );
-        } else {
-            $post_type = isset( $_REQUEST['post_type'] )
-                ? sanitize_key(
-                    wp_unslash(
-                        $_REQUEST['post_type']
-                    )
-                )
-                : 'post';
-        }
-
-        if ( 'page' === $post_type ) {
-            $this->smpm_restrict_page_access(
-                $current_user->ID,
-                $post_id
+        if ( $post_id <= 0 ) {
+            $this->smpm_redirect_to_access_denied(
+                'invalid-content'
             );
-
-            return;
         }
 
-        if ( 'post' === $post_type ) {
-            $this->smpm_restrict_post_access(
-                $current_user->ID,
-                $post_id
+        $post = get_post( $post_id );
+
+        if ( ! $post instanceof WP_Post ) {
+            $this->smpm_redirect_to_access_denied(
+                'content-not-found'
+            );
+        }
+
+        if (
+            ! $this->smpm_editor_can_access_post(
+                $current_user,
+                $post
+            )
+        ) {
+            $reason = (
+                'page' === $post->post_type
+            )
+                ? 'page-not-allowed'
+                : 'post-not-allowed';
+
+            $this->smpm_redirect_to_access_denied(
+                $reason
             );
         }
     }
@@ -222,19 +221,6 @@ class Saude_MG_Permission_Manager_Admin {
     ) {
         $post_id = absint( $post_id );
 
-        if (
-            $post_id <= 0
-            && isset( $_REQUEST['post'] )
-        ) {
-            $post_id = absint(
-                wp_unslash( $_REQUEST['post'] )
-            );
-        }
-
-        /*
-         * Na listagem de páginas não existe um conteúdo
-         * individual a ser validado.
-         */
         if ( $post_id <= 0 ) {
             return;
         }
@@ -242,30 +228,17 @@ class Saude_MG_Permission_Manager_Admin {
         $post = get_post( $post_id );
 
         if (
-            ! $post
+            ! $post instanceof WP_Post
             || 'page' !== $post->post_type
         ) {
             return;
         }
 
-        $allowed_pages = get_user_meta(
-            $user_id,
-            'smpm_allowed_pages',
-            true
-        );
-
-        $allowed_pages = is_array( $allowed_pages )
-            ? array_values(
-                array_unique(
-                    array_filter(
-                        array_map(
-                            'absint',
-                            $allowed_pages
-                        )
-                    )
-                )
+        $allowed_pages = (
+            $this->smpm_get_allowed_pages(
+                $user_id
             )
-            : array();
+        );
 
         if (
             ! in_array(
@@ -274,19 +247,8 @@ class Saude_MG_Permission_Manager_Admin {
                 true
             )
         ) {
-            wp_die(
-                esc_html__(
-                    'Você não tem permissão para acessar esta página.',
-                    'saude-mg-permission-manager'
-                ),
-                esc_html__(
-                    'Acesso negado',
-                    'saude-mg-permission-manager'
-                ),
-                array(
-                    'response'  => 403,
-                    'back_link' => true,
-                )
+            $this->smpm_redirect_to_access_denied(
+                'page-not-allowed'
             );
         }
     }
@@ -297,89 +259,32 @@ class Saude_MG_Permission_Manager_Admin {
     ) {
         $post_id = absint( $post_id );
 
-        if (
-            $post_id <= 0
-            && isset( $_REQUEST['post'] )
-        ) {
-            $post_id = absint(
-                wp_unslash( $_REQUEST['post'] )
-            );
-        }
-
-        /*
-         * Na listagem de posts não existe um conteúdo
-         * individual a ser validado.
-         */
         if ( $post_id <= 0 ) {
             return;
         }
 
         $post = get_post( $post_id );
 
-        /*
-         * Uma página nunca deve passar pela validação
-         * de categorias de posts.
-         */
         if (
-            ! $post
+            ! $post instanceof WP_Post
             || 'post' !== $post->post_type
         ) {
             return;
         }
 
-        $allowed_categories = get_user_meta(
-            $user_id,
-            'smpm_allowed_categories',
-            true
+        $current_user = get_userdata(
+            absint( $user_id )
         );
 
-        $allowed_categories = is_array(
-            $allowed_categories
-        )
-            ? array_values(
-                array_unique(
-                    array_filter(
-                        array_map(
-                            'absint',
-                            $allowed_categories
-                        )
-                    )
-                )
+        if (
+            ! $current_user instanceof WP_User
+            || ! $this->smpm_editor_can_access_post(
+                $current_user,
+                $post
             )
-            : array();
-
-        $post_categories = array_values(
-            array_unique(
-                array_filter(
-                    array_map(
-                        'absint',
-                        wp_get_post_categories(
-                            $post_id
-                        )
-                    )
-                )
-            )
-        );
-
-        $permitted_categories = array_intersect(
-            $post_categories,
-            $allowed_categories
-        );
-
-        if ( empty( $permitted_categories ) ) {
-            wp_die(
-                esc_html__(
-                    'Você não tem permissão para acessar este post.',
-                    'saude-mg-permission-manager'
-                ),
-                esc_html__(
-                    'Acesso negado',
-                    'saude-mg-permission-manager'
-                ),
-                array(
-                    'response'  => 403,
-                    'back_link' => true,
-                )
+        ) {
+            $this->smpm_redirect_to_access_denied(
+                'post-not-allowed'
             );
         }
     }
@@ -1307,16 +1212,29 @@ class Saude_MG_Permission_Manager_Admin {
     }
 
     public function smpm_custom_dashboard_content() {
-        global $pagenow;
+        /*
+         * A mensagem personalizada deve ser executada
+         * exclusivamente no Painel principal.
+         *
+         * get_current_screen() é usado para impedir que
+         * esta rotina alcance páginas internas criadas
+         * pelo próprio plugin.
+         */
+        $screen = get_current_screen();
 
-        if ( 'index.php' !== $pagenow ) {
+        if (
+            ! $screen
+            || 'dashboard' !== $screen->base
+            || 'dashboard' !== $screen->id
+        ) {
             return;
         }
 
         $current_user = wp_get_current_user();
 
         if (
-            ! in_array(
+            ! $current_user->exists()
+            || ! in_array(
                 'editor',
                 (array) $current_user->roles,
                 true
@@ -1331,20 +1249,46 @@ class Saude_MG_Permission_Manager_Admin {
             true
         );
 
+        $allowed_pages = is_array( $allowed_pages )
+            ? array_values(
+                array_unique(
+                    array_filter(
+                        array_map(
+                            'absint',
+                            $allowed_pages
+                        )
+                    )
+                )
+            )
+            : array();
+
         $allowed_categories = get_user_meta(
             $current_user->ID,
             'smpm_allowed_categories',
             true
         );
 
-        $has_pages = (
-            is_array( $allowed_pages )
-            && ! empty( $allowed_pages )
+        $allowed_categories = is_array(
+            $allowed_categories
+        )
+            ? array_values(
+                array_unique(
+                    array_filter(
+                        array_map(
+                            'absint',
+                            $allowed_categories
+                        )
+                    )
+                )
+            )
+            : array();
+
+        $has_pages = ! empty(
+            $allowed_pages
         );
 
-        $has_categories = (
-            is_array( $allowed_categories )
-            && ! empty( $allowed_categories )
+        $has_categories = ! empty(
+            $allowed_categories
         );
 
         $first_name = trim(
@@ -1358,7 +1302,7 @@ class Saude_MG_Permission_Manager_Admin {
         }
 
         if ( '' === $first_name ) {
-            $first_name = (
+            $first_name = trim(
                 (string) $current_user->user_login
             );
         }
@@ -1382,36 +1326,292 @@ class Saude_MG_Permission_Manager_Admin {
         );
 
         echo '<div id="smpm-custom-dashboard" '
-            . 'style="margin-top:20px;'
+            . 'style="'
+            . 'display:block;'
+            . 'visibility:visible;'
+            . 'opacity:1;'
+            . 'margin:20px 20px 0 0;'
             . 'background:#fff;'
             . 'padding:20px;'
             . 'border:1px solid #ccd0d4;'
             . 'box-shadow:0 1px 1px '
-            . 'rgba(0,0,0,.04);">';
+            . 'rgba(0,0,0,.04);'
+            . '">';
 
-        echo wp_kses_post( $message );
+        echo wp_kses_post(
+            wpautop( $message )
+        );
 
         echo '</div>';
 
-        echo '<script>
+        /*
+         * Oculta somente os componentes nativos do Painel.
+         *
+         * Não utiliza mais:
+         * $("#wpbody-content .wrap").hide()
+         *
+         * Essa regra era genérica demais e poderia alcançar
+         * páginas administrativas internas.
+         */
+        echo '<script id="smpm-dashboard-script">
             jQuery(function ($) {
-                $("#wpbody-content .wrap").hide();
+                var customDashboard = $(
+                    "#smpm-custom-dashboard"
+                );
 
-                $("#smpm-custom-dashboard")
-                    .prependTo("#wpbody-content");
+                if (!customDashboard.length) {
+                    return;
+                }
+
+                $("#welcome-panel").hide();
+                $("#dashboard-widgets-wrap").hide();
+
+                customDashboard
+                    .prependTo("#wpbody-content")
+                    .css({
+                        display: "block",
+                        visibility: "visible",
+                        opacity: 1
+                    });
             });
         </script>';
     }
 
     public function smpm_block_direct_access() {
         $current_user = wp_get_current_user();
-        if ( ! in_array( 'editor', (array) $current_user->roles ) ) {
+
+        if (
+            ! $current_user->exists()
+            || ! in_array(
+                'editor',
+                (array) $current_user->roles,
+                true
+            )
+        ) {
             return;
         }
+
+        /*
+         * Não interfere em AJAX, cron, REST e salvamentos
+         * internos necessários ao funcionamento do editor.
+         */
+        if (
+            wp_doing_ajax()
+            || wp_doing_cron()
+            || (
+                defined( 'REST_REQUEST' )
+                && REST_REQUEST
+            )
+        ) {
+            return;
+        }
+
         global $pagenow;
-        if ( $pagenow == 'themes.php' || $pagenow == 'profile.php' || $pagenow == 'tools.php' || 
-             ( $pagenow == 'edit-tags.php' && isset($_GET['taxonomy']) && ($_GET['taxonomy'] == 'category' || $_GET['taxonomy'] == 'post_tag') ) ) {
-            wp_die( __( 'Você não tem permissão para acessar esta página.', 'saude-mg-permission-manager' ) );
+
+        /*
+         * A própria página de erro deve permanecer acessível.
+         */
+        if ( $this->smpm_is_access_denied_screen() ) {
+            return;
+        }
+
+        /*
+         * Endpoints internos que não devem ser bloqueados.
+         */
+        if (
+            in_array(
+                $pagenow,
+                array(
+                    'admin-ajax.php',
+                    'admin-post.php',
+                    'async-upload.php',
+                ),
+                true
+            )
+        ) {
+            return;
+        }
+
+        $allowed_pages = (
+            $this->smpm_get_allowed_pages(
+                $current_user->ID
+            )
+        );
+
+        $allowed_categories = (
+            $this->smpm_get_allowed_categories(
+                $current_user->ID
+            )
+        );
+
+        $has_page_permissions = ! empty(
+            $allowed_pages
+        );
+
+        $has_category_permissions = ! empty(
+            $allowed_categories
+        );
+
+        $has_content_permissions = (
+            $has_page_permissions
+            || $has_category_permissions
+        );
+
+        /*
+         * Mídia somente pode ser acessada quando existe
+         * qualquer permissão de conteúdo.
+         */
+        if (
+            in_array(
+                $pagenow,
+                array(
+                    'upload.php',
+                    'media-new.php',
+                ),
+                true
+            )
+            && ! $has_content_permissions
+        ) {
+            $this->smpm_redirect_to_access_denied(
+                'media-not-allowed'
+            );
+        }
+
+        /*
+         * Listagem de Posts.
+         */
+        if ( 'edit.php' === $pagenow ) {
+            $post_type = isset(
+                $_GET['post_type']
+            )
+                ? sanitize_key(
+                    wp_unslash(
+                        $_GET['post_type']
+                    )
+                )
+                : 'post';
+
+            if (
+                'page' === $post_type
+                && ! $has_page_permissions
+            ) {
+                $this->smpm_redirect_to_access_denied(
+                    'pages-not-allowed'
+                );
+            }
+
+            if (
+                'post' === $post_type
+                && ! $has_category_permissions
+            ) {
+                $this->smpm_redirect_to_access_denied(
+                    'posts-not-allowed'
+                );
+            }
+        }
+
+        /*
+         * Criação de novo conteúdo.
+         *
+         * A criação de Páginas continua bloqueada porque
+         * as páginas liberadas são definidas previamente
+         * pelo administrador.
+         */
+        if ( 'post-new.php' === $pagenow ) {
+            $post_type = isset(
+                $_GET['post_type']
+            )
+                ? sanitize_key(
+                    wp_unslash(
+                        $_GET['post_type']
+                    )
+                )
+                : 'post';
+
+            if ( 'page' === $post_type ) {
+                $this->smpm_redirect_to_access_denied(
+                    'page-creation-not-allowed'
+                );
+            }
+
+            if (
+                'post' === $post_type
+                && ! $has_category_permissions
+            ) {
+                $this->smpm_redirect_to_access_denied(
+                    'post-creation-not-allowed'
+                );
+            }
+        }
+
+        /*
+         * Categorias e tags não podem ser administradas
+         * diretamente por Editores.
+         */
+        if ( 'edit-tags.php' === $pagenow ) {
+            $taxonomy = isset(
+                $_GET['taxonomy']
+            )
+                ? sanitize_key(
+                    wp_unslash(
+                        $_GET['taxonomy']
+                    )
+                )
+                : '';
+
+            if (
+                in_array(
+                    $taxonomy,
+                    array(
+                        'category',
+                        'post_tag',
+                    ),
+                    true
+                )
+            ) {
+                $this->smpm_redirect_to_access_denied(
+                    'taxonomy-not-allowed'
+                );
+            }
+        }
+
+        /*
+         * Telas administrativas que não fazem parte
+         * da experiência autorizada para Editores.
+         */
+        $blocked_admin_pages = array(
+            'themes.php',
+            'plugins.php',
+            'plugin-install.php',
+            'plugin-editor.php',
+            'theme-editor.php',
+            'tools.php',
+            'import.php',
+            'export.php',
+            'options-general.php',
+            'options-writing.php',
+            'options-reading.php',
+            'options-discussion.php',
+            'options-media.php',
+            'options-permalink.php',
+            'options-privacy.php',
+            'users.php',
+            'user-new.php',
+            'profile.php',
+            'update-core.php',
+            'site-health.php',
+        );
+
+        if (
+            in_array(
+                $pagenow,
+                $blocked_admin_pages,
+                true
+            )
+        ) {
+            $this->smpm_redirect_to_access_denied(
+                'admin-area-not-allowed'
+            );
         }
     }
 
@@ -1667,8 +1867,14 @@ class Saude_MG_Permission_Manager_Admin {
 
     
     public function smpm_restrict_direct_url_access() {
-        // Já implementado em smpm_block_direct_access
+        /*
+         * Mantido por compatibilidade com o hook existente.
+         *
+         * A validação centralizada é executada em
+         * smpm_block_direct_access(), no admin_init.
+         */
     }
+
     
     public function smpm_filter_post_categories(
         $args,
@@ -2678,6 +2884,21 @@ class Saude_MG_Permission_Manager_Admin {
                 ),
             )
         );
+
+        register_setting(
+            'smpm_gfe_settings',
+            'smpm_access_denied_message',
+            array(
+                'type'              => 'string',
+                'sanitize_callback' => array(
+                    $this,
+                    'smpm_sanitize_dashboard_message',
+                ),
+                'default'           => (
+                    $this->smpm_get_default_access_denied_message()
+                ),
+            )
+        );
     }
 
     public function smpm_add_settings_page() {
@@ -2756,6 +2977,11 @@ class Saude_MG_Permission_Manager_Admin {
             $this->smpm_get_default_first_access_message()
         );
 
+        $access_denied_message = get_option(
+            'smpm_access_denied_message',
+            $this->smpm_get_default_access_denied_message()
+        );
+
         ?>
         <div class="wrap">
             <h1>
@@ -2767,22 +2993,18 @@ class Saude_MG_Permission_Manager_Admin {
 
             <p>
                 <?php esc_html_e(
-                    'Configure as mensagens exibidas aos '
-                    . 'Editores na página Painel.',
+                    'Configure as mensagens apresentadas '
+                    . 'aos usuários Editores.',
                     'saude-mg-permission-manager'
                 ); ?>
             </p>
 
-            <div
-                class="notice notice-info inline"
-                style="margin:16px 0;"
-            >
+            <div class="notice notice-info inline">
                 <p>
                     <?php
                     echo wp_kses_post(
                         __(
-                            'Use o marcador '
-                            . '<code>{nome}</code> para '
+                            'Use <code>{nome}</code> para '
                             . 'inserir automaticamente o nome '
                             . 'do Editor.',
                             'saude-mg-permission-manager'
@@ -2792,10 +3014,7 @@ class Saude_MG_Permission_Manager_Admin {
                 </p>
             </div>
 
-            <form
-                method="post"
-                action="options.php"
-            >
+            <form method="post" action="options.php">
                 <?php
                 settings_fields(
                     'smpm_gfe_settings'
@@ -2820,7 +3039,7 @@ class Saude_MG_Permission_Manager_Admin {
                     <p>
                         <?php esc_html_e(
                             'Exibida quando o Editor possui '
-                            . 'páginas ou categorias liberadas.',
+                            . 'permissões configuradas.',
                             'saude-mg-permission-manager'
                         ); ?>
                     </p>
@@ -2861,7 +3080,7 @@ class Saude_MG_Permission_Manager_Admin {
                         <?php esc_html_e(
                             'Exibida quando o Editor ainda '
                             . 'não possui páginas nem '
-                            . 'categorias liberadas.',
+                            . 'categorias autorizadas.',
                             'saude-mg-permission-manager'
                         ); ?>
                     </p>
@@ -2874,7 +3093,48 @@ class Saude_MG_Permission_Manager_Admin {
                             'textarea_name' => (
                                 'smpm_first_access_message'
                             ),
-                            'textarea_rows' => 9,
+                            'textarea_rows' => 10,
+                            'media_buttons' => false,
+                            'teeny'         => false,
+                            'quicktags'     => true,
+                        )
+                    );
+                    ?>
+                </div>
+
+                <div
+                    class="card"
+                    style="
+                        max-width:none;
+                        margin-top:20px;
+                        padding:20px;
+                    "
+                >
+                    <h2>
+                        <?php esc_html_e(
+                            'Mensagem de acesso negado',
+                            'saude-mg-permission-manager'
+                        ); ?>
+                    </h2>
+
+                    <p>
+                        <?php esc_html_e(
+                            'Exibida quando um Editor tenta '
+                            . 'acessar diretamente uma área, '
+                            . 'página ou post sem autorização.',
+                            'saude-mg-permission-manager'
+                        ); ?>
+                    </p>
+
+                    <?php
+                    wp_editor(
+                        $access_denied_message,
+                        'smpm_access_denied_message_editor',
+                        array(
+                            'textarea_name' => (
+                                'smpm_access_denied_message'
+                            ),
+                            'textarea_rows' => 10,
                             'media_buttons' => false,
                             'teeny'         => false,
                             'quicktags'     => true,
@@ -2893,6 +3153,465 @@ class Saude_MG_Permission_Manager_Admin {
                 ?>
             </form>
         </div>
+        <?php
+    }
+
+    private function smpm_get_allowed_pages(
+        $user_id
+    ) {
+        $allowed_pages = get_user_meta(
+            absint( $user_id ),
+            'smpm_allowed_pages',
+            true
+        );
+
+        if ( ! is_array( $allowed_pages ) ) {
+            return array();
+        }
+
+        return array_values(
+            array_unique(
+                array_filter(
+                    array_map(
+                        'absint',
+                        $allowed_pages
+                    )
+                )
+            )
+        );
+    }
+
+    private function smpm_get_allowed_categories(
+        $user_id
+    ) {
+        $allowed_categories = get_user_meta(
+            absint( $user_id ),
+            'smpm_allowed_categories',
+            true
+        );
+
+        if ( ! is_array( $allowed_categories ) ) {
+            return array();
+        }
+
+        return array_values(
+            array_unique(
+                array_filter(
+                    array_map(
+                        'absint',
+                        $allowed_categories
+                    )
+                )
+            )
+        );
+    }
+
+    private function smpm_is_access_denied_screen() {
+        if ( ! isset( $_GET['page'] ) ) {
+            return false;
+        }
+
+        return (
+            'smpm-access-denied'
+            === sanitize_key(
+                wp_unslash( $_GET['page'] )
+            )
+        );
+    }
+
+    private function smpm_redirect_to_access_denied(
+        $reason = 'restricted'
+    ) {
+        if ( $this->smpm_is_access_denied_screen() ) {
+            return;
+        }
+
+        $reason = sanitize_key(
+            (string) $reason
+        );
+
+        if ( '' === $reason ) {
+            $reason = 'restricted';
+        }
+
+        $redirect_url = add_query_arg(
+            array(
+                'page'   => 'smpm-access-denied',
+                'reason' => $reason,
+            ),
+            admin_url( 'admin.php' )
+        );
+
+        wp_safe_redirect( $redirect_url );
+        exit;
+    }
+
+    private function smpm_editor_can_access_post(
+        $current_user,
+        $post
+    ) {
+        if (
+            ! $current_user instanceof WP_User
+            || ! $post instanceof WP_Post
+        ) {
+            return false;
+        }
+
+        if ( 'page' === $post->post_type ) {
+            return in_array(
+                absint( $post->ID ),
+                $this->smpm_get_allowed_pages(
+                    $current_user->ID
+                ),
+                true
+            );
+        }
+
+        if ( 'post' !== $post->post_type ) {
+            return false;
+        }
+
+        $allowed_categories = (
+            $this->smpm_get_allowed_categories(
+                $current_user->ID
+            )
+        );
+
+        if ( empty( $allowed_categories ) ) {
+            return false;
+        }
+
+        $post_categories = array_values(
+            array_unique(
+                array_filter(
+                    array_map(
+                        'absint',
+                        wp_get_post_categories(
+                            $post->ID
+                        )
+                    )
+                )
+            )
+        );
+
+        /*
+         * Um novo auto-draft ainda não possui categorias.
+         * O Editor pode acessá-lo se for o autor e possuir
+         * ao menos uma categoria autorizada.
+         */
+        if (
+            empty( $post_categories )
+            && in_array(
+                $post->post_status,
+                array(
+                    'auto-draft',
+                    'draft',
+                ),
+                true
+            )
+            && absint( $post->post_author )
+                === absint( $current_user->ID )
+        ) {
+            return true;
+        }
+
+        return ! empty(
+            array_intersect(
+                $post_categories,
+                $allowed_categories
+            )
+        );
+    }
+
+    private function smpm_get_default_access_denied_message() {
+        return '<h1>Acesso não autorizado</h1>'
+            . '<p>Olá, {nome}.</p>'
+            . '<p>Você não possui permissão para acessar '
+            . 'este conteúdo ou esta área administrativa.</p>'
+            . '<p>Caso considere que deveria ter acesso, '
+            . 'entre em contato com o administrador '
+            . 'responsável pelas permissões do portal.</p>';
+    }
+
+    public function smpm_add_access_denied_page() {
+        add_submenu_page(
+            null,
+            __(
+                'Acesso não autorizado',
+                'saude-mg-permission-manager'
+            ),
+            __(
+                'Acesso não autorizado',
+                'saude-mg-permission-manager'
+            ),
+            'read',
+            'smpm-access-denied',
+            array(
+                $this,
+                'smpm_render_access_denied_page',
+            )
+        );
+    }
+
+    public function smpm_render_access_denied_page() {
+        $current_user = wp_get_current_user();
+
+        /*
+         * A tela é destinada exclusivamente aos Editores.
+         * Outros perfis retornam ao Painel.
+         */
+        if (
+            ! $current_user->exists()
+            || ! in_array(
+                'editor',
+                (array) $current_user->roles,
+                true
+            )
+        ) {
+            wp_safe_redirect(
+                admin_url( 'index.php' )
+            );
+
+            exit;
+        }
+
+        $first_name = trim(
+            (string) $current_user->user_firstname
+        );
+
+        if ( '' === $first_name ) {
+            $first_name = trim(
+                (string) $current_user->display_name
+            );
+        }
+
+        if ( '' === $first_name ) {
+            $first_name = trim(
+                (string) $current_user->user_login
+            );
+        }
+
+        $message = get_option(
+            'smpm_access_denied_message',
+            $this->smpm_get_default_access_denied_message()
+        );
+
+        $message = str_replace(
+            '{nome}',
+            esc_html( $first_name ),
+            (string) $message
+        );
+
+        /*
+         * Não utiliza a classe "wrap".
+         *
+         * Isso impede que scripts destinados ao Painel
+         * ocultem acidentalmente esta página.
+         */
+        ?>
+        <div
+            id="smpm-access-denied-page"
+            class="smpm-access-denied-page"
+        >
+            <div
+                id="smpm-access-denied-card"
+                class="notice notice-error"
+            >
+                <div
+                    class="smpm-access-denied-message"
+                >
+                    <?php
+                    echo wp_kses_post(
+                        wpautop( $message )
+                    );
+                    ?>
+                </div>
+
+                <p class="smpm-access-denied-actions">
+                    <a
+                        href="<?php echo esc_url(
+                            admin_url( 'index.php' )
+                        ); ?>"
+                        class="button button-primary"
+                    >
+                        <?php esc_html_e(
+                            'Voltar ao Painel',
+                            'saude-mg-permission-manager'
+                        ); ?>
+                    </a>
+                </p>
+            </div>
+        </div>
+
+        <style id="smpm-access-denied-styles">
+            body.toplevel_page_smpm-access-denied
+            #wpbody-content,
+            body.admin_page_smpm-access-denied
+            #wpbody-content {
+                display: block !important;
+                min-height: 400px !important;
+                opacity: 1 !important;
+                visibility: visible !important;
+            }
+
+            #smpm-access-denied-page {
+                box-sizing: border-box !important;
+                display: block !important;
+                margin: 20px 20px 0 0 !important;
+                max-width: 960px !important;
+                opacity: 1 !important;
+                position: relative !important;
+                visibility: visible !important;
+            }
+
+            #smpm-access-denied-card {
+                background: #fff !important;
+                border-left-color: #d63638 !important;
+                border-left-width: 4px !important;
+                box-sizing: border-box !important;
+                display: block !important;
+                margin: 0 !important;
+                opacity: 1 !important;
+                padding: 20px 24px !important;
+                visibility: visible !important;
+            }
+
+            #smpm-access-denied-card h1,
+            #smpm-access-denied-card h2,
+            #smpm-access-denied-card h3 {
+                margin-top: 0 !important;
+            }
+
+            #smpm-access-denied-card p {
+                font-size: 14px;
+                line-height: 1.6;
+            }
+
+            #smpm-access-denied-card
+            .smpm-access-denied-actions {
+                margin-bottom: 0 !important;
+                margin-top: 20px !important;
+            }
+
+            @media screen and (max-width: 782px) {
+                #smpm-access-denied-page {
+                    margin: 15px 10px 0 !important;
+                }
+            }
+        </style>
+
+        <script id="smpm-access-denied-script">
+            (function () {
+                "use strict";
+
+                function showAccessDeniedPage() {
+                    var page = document.getElementById(
+                        "smpm-access-denied-page"
+                    );
+
+                    if (!page) {
+                        return;
+                    }
+
+                    var wpBody = document.getElementById(
+                        "wpbody"
+                    );
+
+                    var wpBodyContent = document.getElementById(
+                        "wpbody-content"
+                    );
+
+                    if (wpBody) {
+                        wpBody.style.setProperty(
+                            "display",
+                            "block",
+                            "important"
+                        );
+
+                        wpBody.style.setProperty(
+                            "visibility",
+                            "visible",
+                            "important"
+                        );
+
+                        wpBody.style.setProperty(
+                            "opacity",
+                            "1",
+                            "important"
+                        );
+                    }
+
+                    if (wpBodyContent) {
+                        wpBodyContent.style.setProperty(
+                            "display",
+                            "block",
+                            "important"
+                        );
+
+                        wpBodyContent.style.setProperty(
+                            "visibility",
+                            "visible",
+                            "important"
+                        );
+
+                        wpBodyContent.style.setProperty(
+                            "opacity",
+                            "1",
+                            "important"
+                        );
+                    }
+
+                    page.style.setProperty(
+                        "display",
+                        "block",
+                        "important"
+                    );
+
+                    page.style.setProperty(
+                        "visibility",
+                        "visible",
+                        "important"
+                    );
+
+                    page.style.setProperty(
+                        "opacity",
+                        "1",
+                        "important"
+                    );
+                }
+
+                if (
+                    document.readyState === "loading"
+                ) {
+                    document.addEventListener(
+                        "DOMContentLoaded",
+                        showAccessDeniedPage
+                    );
+                } else {
+                    showAccessDeniedPage();
+                }
+
+                /*
+                 * Executa novamente após os scripts do rodapé.
+                 * Isso impede que uma rotina tardia deixe a
+                 * página branca.
+                 */
+                window.addEventListener(
+                    "load",
+                    showAccessDeniedPage
+                );
+
+                window.setTimeout(
+                    showAccessDeniedPage,
+                    100
+                );
+
+                window.setTimeout(
+                    showAccessDeniedPage,
+                    500
+                );
+            }());
+        </script>
         <?php
     }
 

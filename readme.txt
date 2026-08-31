@@ -3,7 +3,7 @@ Contributors: manus
 Tags: permissions, users, roles, editor, access-control
 Requires at least: 5.0
 Tested up to: 6.4
-Stable tag: 17.14.3
+Stable tag: 17.14.5
 Requires PHP: 7.4
 License: GPL2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -70,6 +70,30 @@ O plugin foi desenvolvido para integrar-se perfeitamente com a lógica nativa de
 3. Modal com controles de páginas, categorias e plugins
 
 == Changelog ==
+= 17.14.5 =
+* Corrigida a página de Acesso não autorizado que desaparecia após o carregamento.
+* Removida a classe genérica wrap da página de acesso negado.
+* Adicionado um contêiner exclusivo para a página de acesso negado.
+* Limitada a personalização do Painel exclusivamente à tela dashboard.
+* Removida a ocultação genérica dos elementos .wrap.
+* Mantida a ocultação apenas dos componentes nativos do Painel.
+* Reforçada a exibição da mensagem de acesso negado após o carregamento.
+* Preservada a mensagem configurável pelos administradores.
+* Preservados todos os bloqueios e redirecionamentos da versão 17.14.4.
+
+= 17.14.4 =
+* Criada uma página interna de Acesso não autorizado para Editores.
+* Adicionado redirecionamento de acessos administrativos indevidos.
+* Adicionada mensagem configurável de acesso negado.
+* Adicionado suporte ao marcador {nome} na mensagem de acesso negado.
+* Bloqueado o acesso direto à Mídia quando não existem permissões.
+* Bloqueado o acesso direto a Posts sem categorias autorizadas.
+* Bloqueado o acesso direto a Páginas sem páginas autorizadas.
+* Bloqueado o acesso a páginas e posts individuais não autorizados.
+* Bloqueado o acesso direto à administração de categorias e tags.
+* Adicionada proteção contra ciclos de redirecionamento.
+* Preservadas as configurações e correções das versões anteriores.
+
 = 17.14.3 =
 * Ocultado o menu Mídia durante o primeiro acesso do Editor.
 * Mantido somente o Painel quando o Editor não possui permissões.
