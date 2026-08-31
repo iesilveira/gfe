@@ -3,7 +3,7 @@ Contributors: manus
 Tags: permissions, users, roles, editor, access-control
 Requires at least: 5.0
 Tested up to: 6.4
-Stable tag: 17.14
+Stable tag: 17.14.3
 Requires PHP: 7.4
 License: GPL2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -70,6 +70,37 @@ O plugin foi desenvolvido para integrar-se perfeitamente com a lógica nativa de
 3. Modal com controles de páginas, categorias e plugins
 
 == Changelog ==
+= 17.14.3 =
+* Ocultado o menu Mídia durante o primeiro acesso do Editor.
+* Mantido somente o Painel quando o Editor não possui permissões.
+* Configurada a exibição de Mídia quando existe qualquer página permitida.
+* Configurada a exibição de Mídia quando existe qualquer categoria permitida.
+* Mantido o menu Posts condicionado às categorias autorizadas.
+* Mantido o menu Páginas condicionado às páginas autorizadas.
+* Corrigido o CSS que forçava o menu Mídia a permanecer visível.
+* Mantidos inalterados os menus dos administradores.
+* Preservadas a tela de Configurações e as correções anteriores.
+
+= 17.14.2 =
+* Corrigido o seletor CSS que ocultava o nome do Editor na barra superior.
+* Separados os seletores dos lados esquerdo e direito da barra administrativa.
+* Restaurada a exibição do nome do usuário no canto superior direito.
+* Mantido o usuário sem avatar e sem acesso à edição do perfil.
+* Mantida somente a opção Sair no dropdown do usuário.
+* Preservado o nome do site no lado esquerdo.
+* Mantida inalterada a barra administrativa dos administradores.
+* Preservada a tela de Configurações do GFE.
+
+= 17.14.1 =
+* Restaurado o nome do Editor no canto superior direito da barra administrativa.
+* Removido completamente o avatar da barra superior.
+* Removidos o avatar e os dados pessoais do submenu.
+* Removida a opção de edição do perfil.
+* Mantida somente a opção Sair no dropdown do usuário.
+* Preservado o nome do site no lado esquerdo da barra.
+* Mantida inalterada a barra administrativa dos administradores.
+* Preservada a tela de Configurações criada na versão 17.14.
+
 
 = 17.14 =
 * Adicionado o link Configurações à linha de ações do plugin.

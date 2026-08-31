@@ -638,8 +638,13 @@ class Saude_MG_Permission_Manager_Admin {
     public function smpm_remove_admin_menus() {
         $current_user = wp_get_current_user();
 
+        /*
+         * As restrições são aplicadas somente aos Editores.
+         * Administradores mantêm todos os menus originais.
+         */
         if (
-            ! in_array(
+            ! $current_user->exists()
+            || ! in_array(
                 'editor',
                 (array) $current_user->roles,
                 true
@@ -648,15 +653,109 @@ class Saude_MG_Permission_Manager_Admin {
             return;
         }
 
-        global $menu;
-
-        $allowed_menu_slugs = array(
-            'index.php',
-            'edit.php',
-            'upload.php',
-            'edit.php?post_type=page',
+        /*
+         * Carrega e normaliza as páginas permitidas.
+         */
+        $allowed_pages = get_user_meta(
+            $current_user->ID,
+            'smpm_allowed_pages',
+            true
         );
 
+        $allowed_pages = is_array( $allowed_pages )
+            ? array_values(
+                array_unique(
+                    array_filter(
+                        array_map(
+                            'absint',
+                            $allowed_pages
+                        )
+                    )
+                )
+            )
+            : array();
+
+        /*
+         * Carrega e normaliza as categorias permitidas.
+         */
+        $allowed_categories = get_user_meta(
+            $current_user->ID,
+            'smpm_allowed_categories',
+            true
+        );
+
+        $allowed_categories = is_array(
+            $allowed_categories
+        )
+            ? array_values(
+                array_unique(
+                    array_filter(
+                        array_map(
+                            'absint',
+                            $allowed_categories
+                        )
+                    )
+                )
+            )
+            : array();
+
+        $has_page_permissions = ! empty(
+            $allowed_pages
+        );
+
+        $has_category_permissions = ! empty(
+            $allowed_categories
+        );
+
+        /*
+         * Mídia somente será disponibilizada quando
+         * existir ao menos uma permissão de Página
+         * ou de Categoria.
+         */
+        $has_content_permissions = (
+            $has_page_permissions
+            || $has_category_permissions
+        );
+
+        /*
+         * O Painel sempre permanece disponível.
+         */
+        $allowed_menu_slugs = array(
+            'index.php',
+        );
+
+        /*
+         * Posts somente aparece quando o Editor possui
+         * ao menos uma categoria permitida.
+         */
+        if ( $has_category_permissions ) {
+            $allowed_menu_slugs[] = 'edit.php';
+        }
+
+        /*
+         * Páginas somente aparece quando o Editor possui
+         * ao menos uma página permitida.
+         */
+        if ( $has_page_permissions ) {
+            $allowed_menu_slugs[] = (
+                'edit.php?post_type=page'
+            );
+        }
+
+        /*
+         * Mídia aparece quando o Editor possui qualquer
+         * permissão de conteúdo.
+         */
+        if ( $has_content_permissions ) {
+            $allowed_menu_slugs[] = 'upload.php';
+        }
+
+        global $menu;
+
+        /*
+         * Remove todos os menus que não estiverem na lista
+         * construída de acordo com as permissões do Editor.
+         */
         if ( is_array( $menu ) ) {
             foreach ( $menu as $menu_item ) {
                 if ( ! isset( $menu_item[2] ) ) {
@@ -679,6 +778,10 @@ class Saude_MG_Permission_Manager_Admin {
             }
         }
 
+        /*
+         * O Editor não pode administrar categorias nem tags,
+         * mesmo que possua categorias de Posts liberadas.
+         */
         remove_submenu_page(
             'edit.php',
             'edit-tags.php?taxonomy=category'
@@ -689,52 +792,38 @@ class Saude_MG_Permission_Manager_Admin {
             'edit-tags.php?taxonomy=post_tag'
         );
 
-        $allowed_pages = get_user_meta(
-            $current_user->ID,
-            'smpm_allowed_pages',
-            true
-        );
+        /*
+         * Reforço explícito para o estado de primeiro acesso.
+         *
+         * Sem páginas e categorias permitidas, remove:
+         * - Posts;
+         * - Páginas;
+         * - Mídia.
+         *
+         * Somente o Painel permanece visível.
+         */
+        if ( ! $has_content_permissions ) {
+            remove_menu_page( 'edit.php' );
+            remove_menu_page(
+                'edit.php?post_type=page'
+            );
+            remove_menu_page( 'upload.php' );
 
-        $allowed_categories = get_user_meta(
-            $current_user->ID,
-            'smpm_allowed_categories',
-            true
-        );
+            return;
+        }
 
-        $allowed_pages = is_array( $allowed_pages )
-            ? array_values(
-                array_filter(
-                    array_map(
-                        'absint',
-                        $allowed_pages
-                    )
-                )
-            )
-            : array();
-
-        $allowed_categories = is_array(
-            $allowed_categories
-        )
-            ? array_values(
-                array_filter(
-                    array_map(
-                        'absint',
-                        $allowed_categories
-                    )
-                )
-            )
-            : array();
-
-        if ( empty( $allowed_pages ) ) {
+        /*
+         * Reforços individuais para evitar que outros plugins
+         * reinsiram menus incompatíveis com as permissões.
+         */
+        if ( ! $has_page_permissions ) {
             remove_menu_page(
                 'edit.php?post_type=page'
             );
         }
 
-        if ( empty( $allowed_categories ) ) {
-            remove_menu_page(
-                'edit.php'
-            );
+        if ( ! $has_category_permissions ) {
+            remove_menu_page( 'edit.php' );
         }
     }
 
@@ -831,8 +920,13 @@ class Saude_MG_Permission_Manager_Admin {
     public function smpm_hide_admin_bar_items() {
         $current_user = wp_get_current_user();
 
+        /*
+         * Personalização exclusiva para Editores.
+         * Administradores mantêm a barra nativa.
+         */
         if (
-            ! in_array(
+            ! $current_user->exists()
+            || ! in_array(
                 'editor',
                 (array) $current_user->roles,
                 true
@@ -843,7 +937,13 @@ class Saude_MG_Permission_Manager_Admin {
 
         global $wp_admin_bar;
 
-        if ( ! is_object( $wp_admin_bar ) ) {
+        if (
+            ! is_object( $wp_admin_bar )
+            || ! method_exists(
+                $wp_admin_bar,
+                'get_nodes'
+            )
+        ) {
             return;
         }
 
@@ -854,8 +954,10 @@ class Saude_MG_Permission_Manager_Admin {
         );
 
         if ( '' === $display_name ) {
-            $display_name = wp_strip_all_tags(
-                (string) $current_user->user_login
+            $display_name = trim(
+                wp_strip_all_tags(
+                    (string) $current_user->user_login
+                )
             );
         }
 
@@ -873,8 +975,8 @@ class Saude_MG_Permission_Manager_Admin {
         }
 
         /*
-         * Remove os itens da barra, preservando apenas
-         * os grupos estruturais necessários.
+         * Remove todos os nós existentes. Os itens
+         * permitidos serão reconstruídos em seguida.
          */
         $nodes = $wp_admin_bar->get_nodes();
 
@@ -884,14 +986,12 @@ class Saude_MG_Permission_Manager_Admin {
                     continue;
                 }
 
+                /*
+                 * top-secondary é um grupo estrutural
+                 * necessário para o canto direito.
+                 */
                 if (
-                    in_array(
-                        $node->id,
-                        array(
-                            'top-secondary',
-                        ),
-                        true
-                    )
+                    'top-secondary' === $node->id
                 ) {
                     continue;
                 }
@@ -903,8 +1003,7 @@ class Saude_MG_Permission_Manager_Admin {
         }
 
         /*
-         * Restaura o item wp-admin-bar-site-name.
-         * O link abre a página pública do site.
+         * Nome do site no lado esquerdo.
          */
         $wp_admin_bar->add_node(
             array(
@@ -923,8 +1022,10 @@ class Saude_MG_Permission_Manager_Admin {
         );
 
         /*
-         * Recria o item do usuário sem avatar e sem link
-         * para edição do perfil.
+         * Nome do usuário no lado direito.
+         *
+         * O item não possui avatar nem link para
+         * edição do perfil.
          */
         $wp_admin_bar->add_node(
             array(
@@ -936,41 +1037,73 @@ class Saude_MG_Permission_Manager_Admin {
                 ),
                 'href'   => false,
                 'meta'   => array(
-                    'class'      => 'smpm-user-account',
+                    'class'      => (
+                        'smpm-user-account'
+                    ),
                     'menu_title' => esc_attr(
                         $display_name
                     ),
-                    'tabindex'   => 0,
+                    'tabindex'   => '0',
                 ),
             )
         );
 
+        /*
+         * Grupo do dropdown.
+         */
         $wp_admin_bar->add_group(
             array(
-                'parent' => 'my-account',
                 'id'     => 'user-actions',
+                'parent' => 'my-account',
+                'meta'   => array(
+                    'class' => 'smpm-user-actions',
+                ),
             )
         );
 
+        /*
+         * Única opção do dropdown.
+         */
         $wp_admin_bar->add_node(
             array(
-                'parent' => 'user-actions',
                 'id'     => 'logout',
+                'parent' => 'user-actions',
                 'title'  => esc_html__(
                     'Sair',
                     'saude-mg-permission-manager'
                 ),
                 'href'   => wp_logout_url(),
+                'meta'   => array(
+                    'class' => 'smpm-logout',
+                ),
             )
         );
 
-        echo '<style>
+        /*
+         * IMPORTANTE:
+         *
+         * O lado esquerdo e o lado direito possuem
+         * seletores independentes.
+         *
+         * A regra anterior utilizava .ab-top-menu e
+         * acabava ocultando também my-account.
+         */
+        echo '<style id="smpm-editor-admin-bar">
             #wpadminbar {
                 z-index: 999 !important;
             }
 
+            /*
+             * Lado esquerdo:
+             * somente o nome do site.
+             */
             #wpadminbar
-            .ab-top-menu
+            #wp-admin-bar-root-default {
+                display: block !important;
+            }
+
+            #wpadminbar
+            #wp-admin-bar-root-default
             > li:not(#wp-admin-bar-site-name) {
                 display: none !important;
             }
@@ -986,14 +1119,18 @@ class Saude_MG_Permission_Manager_Admin {
                 display: block !important;
             }
 
+            /*
+             * Lado direito:
+             * somente o nome do usuário.
+             */
             #wpadminbar
-            .ab-top-secondary {
+            #wp-admin-bar-top-secondary {
                 display: block !important;
                 float: right !important;
             }
 
             #wpadminbar
-            .ab-top-secondary
+            #wp-admin-bar-top-secondary
             > li:not(#wp-admin-bar-my-account) {
                 display: none !important;
             }
@@ -1002,29 +1139,43 @@ class Saude_MG_Permission_Manager_Admin {
             #wp-admin-bar-my-account {
                 display: block !important;
                 float: right !important;
+                visibility: visible !important;
             }
 
             #wpadminbar
             #wp-admin-bar-my-account
             > .ab-item {
                 background: transparent !important;
-                cursor: default;
+                cursor: default !important;
                 display: block !important;
-                padding-left: 10px;
-                padding-right: 10px;
+                padding-left: 12px !important;
+                padding-right: 12px !important;
+                visibility: visible !important;
+                width: auto !important;
             }
 
+            #wpadminbar
+            #wp-admin-bar-my-account
+            > .ab-item
+            .display-name {
+                display: inline-block !important;
+                height: auto !important;
+                margin: 0 !important;
+                opacity: 1 !important;
+                padding: 0 !important;
+                visibility: visible !important;
+                width: auto !important;
+            }
+
+            /*
+             * Remove avatar e ícones.
+             */
             #wpadminbar
             #wp-admin-bar-my-account
             > .ab-item::before,
             #wpadminbar
             #wp-admin-bar-my-account
-            > .ab-item::after {
-                background: none !important;
-                content: none !important;
-                display: none !important;
-            }
-
+            > .ab-item::after,
             #wpadminbar
             #wp-admin-bar-my-account
             img,
@@ -1033,7 +1184,24 @@ class Saude_MG_Permission_Manager_Admin {
             .avatar,
             #wpadminbar
             #wp-admin-bar-my-account
-            .ab-icon,
+            .ab-icon {
+                background: none !important;
+                content: none !important;
+                display: none !important;
+                height: 0 !important;
+                margin: 0 !important;
+                max-height: 0 !important;
+                max-width: 0 !important;
+                opacity: 0 !important;
+                padding: 0 !important;
+                visibility: hidden !important;
+                width: 0 !important;
+            }
+
+            /*
+             * Garante que informações de perfil não sejam
+             * exibidas caso outro plugin tente adicioná-las.
+             */
             #wpadminbar
             #wp-admin-bar-user-info,
             #wpadminbar
@@ -1041,23 +1209,70 @@ class Saude_MG_Permission_Manager_Admin {
                 display: none !important;
             }
 
+            /*
+             * Dropdown alinhado à direita.
+             */
             #wpadminbar
             #wp-admin-bar-my-account
             .ab-sub-wrapper {
-                min-width: 100px;
+                left: auto !important;
+                min-width: 110px !important;
+                right: 0 !important;
             }
 
             #wpadminbar
             #wp-admin-bar-user-actions {
-                padding: 0;
+                padding: 0 !important;
+            }
+
+            /*
+             * Somente a opção Sair.
+             */
+            #wpadminbar
+            #wp-admin-bar-user-actions
+            > li:not(#wp-admin-bar-logout) {
+                display: none !important;
+            }
+
+            #wpadminbar
+            #wp-admin-bar-logout {
+                display: block !important;
             }
 
             #wpadminbar
             #wp-admin-bar-logout
             > .ab-item {
-                min-width: 80px;
-                padding: 6px 12px;
-                text-align: left;
+                display: block !important;
+                min-width: 86px !important;
+                padding: 6px 12px !important;
+                text-align: left !important;
+            }
+
+            /*
+             * Ajuste responsivo.
+             */
+            @media screen and (max-width: 782px) {
+                #wpadminbar
+                #wp-admin-bar-my-account {
+                    display: block !important;
+                }
+
+                #wpadminbar
+                #wp-admin-bar-my-account
+                > .ab-item {
+                    display: block !important;
+                    padding-left: 10px !important;
+                    padding-right: 10px !important;
+                }
+
+                #wpadminbar
+                #wp-admin-bar-my-account
+                > .ab-item
+                .display-name {
+                    display: inline-block !important;
+                    font-size: 13px !important;
+                    line-height: 46px !important;
+                }
             }
         </style>';
     }
@@ -2097,7 +2312,8 @@ class Saude_MG_Permission_Manager_Admin {
         $current_user = wp_get_current_user();
 
         if (
-            ! in_array(
+            ! $current_user->exists()
+            || ! in_array(
                 'editor',
                 (array) $current_user->roles,
                 true
@@ -2107,15 +2323,104 @@ class Saude_MG_Permission_Manager_Admin {
         }
 
         /*
-         * Mantém apenas as restrições funcionais do menu.
-         * Nenhuma logo, imagem, dimensão ou posicionamento
-         * personalizado é aplicado à barra lateral.
+         * Normaliza as permissões para que o CSS seja
+         * montado de acordo com o estado real do Editor.
          */
+        $allowed_pages = get_user_meta(
+            $current_user->ID,
+            'smpm_allowed_pages',
+            true
+        );
+
+        $allowed_pages = is_array( $allowed_pages )
+            ? array_values(
+                array_unique(
+                    array_filter(
+                        array_map(
+                            'absint',
+                            $allowed_pages
+                        )
+                    )
+                )
+            )
+            : array();
+
+        $allowed_categories = get_user_meta(
+            $current_user->ID,
+            'smpm_allowed_categories',
+            true
+        );
+
+        $allowed_categories = is_array(
+            $allowed_categories
+        )
+            ? array_values(
+                array_unique(
+                    array_filter(
+                        array_map(
+                            'absint',
+                            $allowed_categories
+                        )
+                    )
+                )
+            )
+            : array();
+
+        $has_page_permissions = ! empty(
+            $allowed_pages
+        );
+
+        $has_category_permissions = ! empty(
+            $allowed_categories
+        );
+
+        $has_content_permissions = (
+            $has_page_permissions
+            || $has_category_permissions
+        );
+
+        /*
+         * Define o estado visual de cada menu.
+         *
+         * Painel:
+         * - sempre visível.
+         *
+         * Posts:
+         * - visível apenas com categoria permitida.
+         *
+         * Páginas:
+         * - visível apenas com página permitida.
+         *
+         * Mídia:
+         * - visível com qualquer permissão de conteúdo.
+         */
+        $posts_display = (
+            $has_category_permissions
+        )
+            ? 'block'
+            : 'none';
+
+        $pages_display = (
+            $has_page_permissions
+        )
+            ? 'block'
+            : 'none';
+
+        $media_display = (
+            $has_content_permissions
+        )
+            ? 'block'
+            : 'none';
+
         echo '<style id="smpm-editor-menu-restrictions">
             #wpadminbar {
                 z-index: 999 !important;
             }
 
+            /*
+             * Remove todos os menus que não fazem parte
+             * do conjunto controlado pelo GFE.
+             */
             #adminmenu
             li.menu-top:not(#menu-dashboard):not(#menu-posts):not(#menu-media):not(#menu-pages),
             #collapse-menu,
@@ -2128,13 +2433,38 @@ class Saude_MG_Permission_Manager_Admin {
                 display: none !important;
             }
 
-            #menu-dashboard,
-            #menu-posts,
-            #menu-media,
-            #menu-pages {
-                display: block;
+            /*
+             * O Painel sempre permanece visível.
+             */
+            #adminmenu #menu-dashboard {
+                display: block !important;
             }
 
+            /*
+             * Os demais menus respeitam as permissões
+             * efetivamente atribuídas ao Editor.
+             */
+            #adminmenu #menu-posts {
+                display: '
+                . esc_attr( $posts_display )
+                . ' !important;
+            }
+
+            #adminmenu #menu-pages {
+                display: '
+                . esc_attr( $pages_display )
+                . ' !important;
+            }
+
+            #adminmenu #menu-media {
+                display: '
+                . esc_attr( $media_display )
+                . ' !important;
+            }
+
+            /*
+             * Adequações mantidas para a página Painel.
+             */
             body.index-php #wpcontent {
                 box-sizing: border-box;
                 padding-right: 20px !important;
@@ -2151,6 +2481,9 @@ class Saude_MG_Permission_Manager_Admin {
                 margin-right: 0;
             }
 
+            /*
+             * Oculta Ajuda e Opções de tela para Editores.
+             */
             #screen-options-link-wrap,
             #contextual-help-link-wrap,
             #contextual-help-wrap {
