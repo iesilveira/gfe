@@ -3615,4 +3615,165 @@ class Saude_MG_Permission_Manager_Admin {
         <?php
     }
 
+            #smpm-access-denied-page {
+                box-sizing: border-box !important;
+                display: block !important;
+                margin: 20px 20px 0 0 !important;
+                max-width: 960px !important;
+                opacity: 1 !important;
+                position: relative !important;
+                visibility: visible !important;
+            }
+
+            #smpm-access-denied-card {
+                background: #fff !important;
+                border-left-color: #d63638 !important;
+                border-left-width: 4px !important;
+                box-sizing: border-box !important;
+                display: block !important;
+                margin: 0 !important;
+                opacity: 1 !important;
+                padding: 20px 24px !important;
+                visibility: visible !important;
+            }
+
+            #smpm-access-denied-card h1,
+            #smpm-access-denied-card h2,
+            #smpm-access-denied-card h3 {
+                margin-top: 0 !important;
+            }
+
+            #smpm-access-denied-card p {
+                font-size: 14px;
+                line-height: 1.6;
+            }
+
+            #smpm-access-denied-card
+            .smpm-access-denied-actions {
+                margin-bottom: 0 !important;
+                margin-top: 20px !important;
+            }
+
+            @media screen and (max-width: 782px) {
+                #smpm-access-denied-page {
+                    margin: 15px 10px 0 !important;
+                }
+            }
+        </style>
+
+        <script id="smpm-access-denied-script">
+            (function () {
+                "use strict";
+
+                function showAccessDeniedPage() {
+                    var page = document.getElementById(
+                        "smpm-access-denied-page"
+                    );
+
+                    if (!page) {
+                        return;
+                    }
+
+                    var wpBody = document.getElementById(
+                        "wpbody"
+                    );
+
+                    var wpBodyContent = document.getElementById(
+                        "wpbody-content"
+                    );
+
+                    if (wpBody) {
+                        wpBody.style.setProperty(
+                            "display",
+                            "block",
+                            "important"
+                        );
+
+                        wpBody.style.setProperty(
+                            "visibility",
+                            "visible",
+                            "important"
+                        );
+
+                        wpBody.style.setProperty(
+                            "opacity",
+                            "1",
+                            "important"
+                        );
+                    }
+
+                    if (wpBodyContent) {
+                        wpBodyContent.style.setProperty(
+                            "display",
+                            "block",
+                            "important"
+                        );
+
+                        wpBodyContent.style.setProperty(
+                            "visibility",
+                            "visible",
+                            "important"
+                        );
+
+                        wpBodyContent.style.setProperty(
+                            "opacity",
+                            "1",
+                            "important"
+                        );
+                    }
+
+                    page.style.setProperty(
+                        "display",
+                        "block",
+                        "important"
+                    );
+
+                    page.style.setProperty(
+                        "visibility",
+                        "visible",
+                        "important"
+                    );
+
+                    page.style.setProperty(
+                        "opacity",
+                        "1",
+                        "important"
+                    );
+                }
+
+                if (
+                    document.readyState === "loading"
+                ) {
+                    document.addEventListener(
+                        "DOMContentLoaded",
+                        showAccessDeniedPage
+                    );
+                } else {
+                    showAccessDeniedPage();
+                }
+
+                /*
+                 * Executa novamente após os scripts do rodapé.
+                 * Isso impede que uma rotina tardia deixe a
+                 * página branca.
+                 */
+                window.addEventListener(
+                    "load",
+                    showAccessDeniedPage
+                );
+
+                window.setTimeout(
+                    showAccessDeniedPage,
+                    100
+                );
+
+                window.setTimeout(
+                    showAccessDeniedPage,
+                    500
+                );
+            }());
+        </script>
+        <?php
+    }
+
 }
